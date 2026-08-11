@@ -1,0 +1,93 @@
+{
+  "design_rationale": "Modeled a flexible e-commerce platform featuring an abstract Product base class, specialized concrete products, an interface for tax calculations, a customer-owned shopping cart, and a complete order and payment workflow.",
+  "entities": [
+    {
+      "name": "Product",
+      "kind": "core",
+      "note": "Base catalog item representing any sellable entity",
+      "is_abstract": true,
+      "is_interface": false
+    },
+    {
+      "name": "PhysicalProduct",
+      "kind": "core",
+      "note": "Tangible product that requires shipping",
+      "is_abstract": false,
+      "is_interface": false
+    },
+    {
+      "name": "DigitalProduct",
+      "kind": "core",
+      "note": "Intangible product delivered via download",
+      "is_abstract": false,
+      "is_interface": false
+    },
+    {
+      "name": "Taxable",
+      "kind": "supporting",
+      "note": "Interface defining behavior for tax-applicable items",
+      "is_abstract": false,
+      "is_interface": true
+    },
+    {
+      "name": "Customer",
+      "kind": "core",
+      "note": "Platform user who makes purchases and owns a shopping cart",
+      "is_abstract": false,
+      "is_interface": false
+    },
+    {
+      "name": "ShoppingCart",
+      "kind": "core",
+      "note": "Temporary container for items selected by the customer",
+      "is_abstract": false,
+      "is_interface": false
+    },
+    {
+      "name": "Order",
+      "kind": "core",
+      "note": "Finalized purchase contract generated from the shopping cart",
+      "is_abstract": false,
+      "is_interface": false
+    },
+    {
+      "name": "Payment",
+      "kind": "supporting",
+      "note": "Transaction record associated with an order",
+      "is_abstract": false,
+      "is_interface": false
+    }
+  ],
+  "relationships": [
+    {
+      "from_entity": "PhysicalProduct",
+      "to_entity": "Product",
+      "type": "inheritance"
+    },
+    {
+      "from_entity": "DigitalProduct",
+      "to_entity": "Product",
+      "type": "inheritance"
+    },
+    {
+      "from_entity": "PhysicalProduct",
+      "to_entity": "Taxable",
+      "type": "implements"
+    },
+    {
+      "from_entity": "Customer",
+      "to_entity": "ShoppingCart",
+      "type": "composition"
+    },
+    {
+      "from_entity": "Order",
+      "to_entity": "Product",
+      "type": "composition"
+    },
+    {
+      "from_entity": "Order",
+      "to_entity": "Payment",
+      "type": "association"
+    }
+  ]
+}

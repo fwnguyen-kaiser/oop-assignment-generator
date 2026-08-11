@@ -1,0 +1,102 @@
+[
+  {
+    "name": "Product",
+    "is_abstract": true,
+    "is_interface": false,
+    "extends": null,
+    "implements": [],
+    "fields": [],
+    "methods": []
+  },
+  {
+    "name": "PhysicalProduct",
+    "is_abstract": false,
+    "is_interface": false,
+    "extends": "Product",
+    "implements": [
+      "Taxable"
+    ],
+    "fields": [],
+    "methods": []
+  },
+  {
+    "name": "DigitalProduct",
+    "is_abstract": false,
+    "is_interface": false,
+    "extends": "Product",
+    "implements": [],
+    "fields": [],
+    "methods": []
+  },
+  {
+    "name": "Customer",
+    "is_abstract": false,
+    "is_interface": false,
+    "extends": null,
+    "implements": [],
+    "fields": [
+      {
+        "modifier": "private",
+        "type_ref": {
+          "name": "ShoppingCart",
+          "is_collection": true
+        },
+        "name": "shoppingcarts"
+      }
+    ],
+    "methods": []
+  },
+  {
+    "name": "ShoppingCart",
+    "is_abstract": false,
+    "is_interface": false,
+    "extends": null,
+    "implements": [],
+    "fields": [],
+    "methods": []
+  },
+  {
+    "name": "Order",
+    "is_abstract": false,
+    "is_interface": false,
+    "extends": null,
+    "implements": [],
+    "fields": [
+      {
+        "modifier": "private",
+        "type_ref": {
+          "name": "Product",
+          "is_collection": true
+        },
+        "name": "products"
+      },
+      {
+        "modifier": "private",
+        "type_ref": {
+          "name": "Payment",
+          "is_collection": false
+        },
+        "name": "payment"
+      }
+    ],
+    "methods": []
+  },
+  {
+    "name": "Taxable",
+    "is_abstract": false,
+    "is_interface": true,
+    "extends": null,
+    "implements": [],
+    "fields": [],
+    "methods": []
+  },
+  {
+    "name": "Payment",
+    "is_abstract": false,
+    "is_interface": false,
+    "extends": null,
+    "implements": [],
+    "fields": [],
+    "methods": []
+  }
+]

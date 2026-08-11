@@ -1,0 +1,31 @@
+name: E-Commerce Platform
+description: |
+  A platform for online shopping, managing products, shopping carts, and customer orders.
+keywords:
+  - Product
+  - Cart
+  - Order
+  - Payment
+entity_hints:
+  core:
+    - Product
+    - Order
+    - Customer
+  optional:
+    - ShoppingCart
+    - Payment
+    - PhysicalProduct
+    - DigitalProduct
+    - Taxable        # interface candidate: hành vi chung (tính thuế sản phẩm)
+relationship_hints:
+  inheritance:
+    - Product -> PhysicalProduct
+    - Product -> DigitalProduct
+  composition:
+    - Order -> Product
+    - Customer -> ShoppingCart
+  association:
+    - Order -> Payment
+  implements:                        # nhóm mới, khớp preset interface.enabled
+    - Product -> Taxable
+style: modern

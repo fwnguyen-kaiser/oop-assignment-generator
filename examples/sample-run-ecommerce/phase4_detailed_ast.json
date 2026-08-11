@@ -1,0 +1,291 @@
+[
+  {
+    "name": "Product",
+    "is_abstract": true,
+    "is_interface": false,
+    "extends": null,
+    "implements": [],
+    "fields": [
+      {
+        "modifier": "private",
+        "type_ref": {
+          "name": "String",
+          "is_collection": false
+        },
+        "name": "name"
+      },
+      {
+        "modifier": "private",
+        "type_ref": {
+          "name": "double",
+          "is_collection": false
+        },
+        "name": "price"
+      }
+    ],
+    "methods": [
+      {
+        "modifier": "public",
+        "return_type": {
+          "name": "double",
+          "is_collection": false
+        },
+        "name": "calculateDiscount",
+        "parameters": [
+          {
+            "type_ref": {
+              "name": "double",
+              "is_collection": false
+            },
+            "name": "percentage"
+          }
+        ],
+        "body": "return this.price * (percentage / 100.0);",
+        "is_abstract": false
+      }
+    ]
+  },
+  {
+    "name": "PhysicalProduct",
+    "is_abstract": false,
+    "is_interface": false,
+    "extends": "Product",
+    "implements": [
+      "Taxable"
+    ],
+    "fields": [
+      {
+        "modifier": "private",
+        "type_ref": {
+          "name": "double",
+          "is_collection": false
+        },
+        "name": "weight"
+      }
+    ],
+    "methods": [
+      {
+        "modifier": "public",
+        "return_type": {
+          "name": "double",
+          "is_collection": false
+        },
+        "name": "calculateTax",
+        "parameters": [],
+        "body": "return 5.0;",
+        "is_abstract": false
+      }
+    ]
+  },
+  {
+    "name": "DigitalProduct",
+    "is_abstract": false,
+    "is_interface": false,
+    "extends": "Product",
+    "implements": [],
+    "fields": [
+      {
+        "modifier": "private",
+        "type_ref": {
+          "name": "double",
+          "is_collection": false
+        },
+        "name": "fileSize"
+      }
+    ],
+    "methods": [
+      {
+        "modifier": "public",
+        "return_type": {
+          "name": "void",
+          "is_collection": false
+        },
+        "name": "download",
+        "parameters": [],
+        "body": "System.out.println(\"Downloading digital product...\");",
+        "is_abstract": false
+      }
+    ]
+  },
+  {
+    "name": "Customer",
+    "is_abstract": false,
+    "is_interface": false,
+    "extends": null,
+    "implements": [],
+    "fields": [
+      {
+        "modifier": "private",
+        "type_ref": {
+          "name": "ShoppingCart",
+          "is_collection": true
+        },
+        "name": "shoppingcarts"
+      },
+      {
+        "modifier": "private",
+        "type_ref": {
+          "name": "String",
+          "is_collection": false
+        },
+        "name": "email"
+      },
+      {
+        "modifier": "private",
+        "type_ref": {
+          "name": "String",
+          "is_collection": false
+        },
+        "name": "password"
+      }
+    ],
+    "methods": [
+      {
+        "modifier": "public",
+        "return_type": {
+          "name": "boolean",
+          "is_collection": false
+        },
+        "name": "login",
+        "parameters": [
+          {
+            "type_ref": {
+              "name": "String",
+              "is_collection": false
+            },
+            "name": "inputPassword"
+          }
+        ],
+        "body": "return this.password.equals(inputPassword);",
+        "is_abstract": false
+      }
+    ]
+  },
+  {
+    "name": "ShoppingCart",
+    "is_abstract": false,
+    "is_interface": false,
+    "extends": null,
+    "implements": [],
+    "fields": [
+      {
+        "modifier": "private",
+        "type_ref": {
+          "name": "int",
+          "is_collection": false
+        },
+        "name": "itemCount"
+      }
+    ],
+    "methods": [
+      {
+        "modifier": "public",
+        "return_type": {
+          "name": "void",
+          "is_collection": false
+        },
+        "name": "clearCart",
+        "parameters": [],
+        "body": "this.itemCount = 0;",
+        "is_abstract": false
+      }
+    ]
+  },
+  {
+    "name": "Order",
+    "is_abstract": false,
+    "is_interface": false,
+    "extends": null,
+    "implements": [],
+    "fields": [
+      {
+        "modifier": "private",
+        "type_ref": {
+          "name": "Product",
+          "is_collection": true
+        },
+        "name": "products"
+      },
+      {
+        "modifier": "private",
+        "type_ref": {
+          "name": "Payment",
+          "is_collection": false
+        },
+        "name": "payment"
+      },
+      {
+        "modifier": "private",
+        "type_ref": {
+          "name": "String",
+          "is_collection": false
+        },
+        "name": "status"
+      }
+    ],
+    "methods": [
+      {
+        "modifier": "public",
+        "return_type": {
+          "name": "void",
+          "is_collection": false
+        },
+        "name": "processOrder",
+        "parameters": [],
+        "body": "this.status = \"PROCESSING\";",
+        "is_abstract": false
+      }
+    ]
+  },
+  {
+    "name": "Taxable",
+    "is_abstract": false,
+    "is_interface": true,
+    "extends": null,
+    "implements": [],
+    "fields": [],
+    "methods": [
+      {
+        "modifier": "public",
+        "return_type": {
+          "name": "double",
+          "is_collection": false
+        },
+        "name": "calculateTax",
+        "parameters": [],
+        "body": null,
+        "is_abstract": true
+      }
+    ]
+  },
+  {
+    "name": "Payment",
+    "is_abstract": false,
+    "is_interface": false,
+    "extends": null,
+    "implements": [],
+    "fields": [
+      {
+        "modifier": "private",
+        "type_ref": {
+          "name": "double",
+          "is_collection": false
+        },
+        "name": "amount"
+      }
+    ],
+    "methods": [
+      {
+        "modifier": "public",
+        "return_type": {
+          "name": "boolean",
+          "is_collection": false
+        },
+        "name": "executePayment",
+        "parameters": [],
+        "body": "return this.amount > 0;",
+        "is_abstract": false
+      }
+    ]
+  }
+]

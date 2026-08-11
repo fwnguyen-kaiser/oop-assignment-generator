@@ -1,0 +1,19 @@
+classDiagram
+    class Product {
+        <<abstract>>
+    }
+    class PhysicalProduct
+    Product <|-- PhysicalProduct
+    Taxable <|.. PhysicalProduct
+    class DigitalProduct
+    Product <|-- DigitalProduct
+    class Customer
+    Customer *-- ShoppingCart
+    class ShoppingCart
+    class Order
+    Order *-- Product
+    Order --> Payment
+    class Taxable {
+        <<interface>>
+    }
+    class Payment

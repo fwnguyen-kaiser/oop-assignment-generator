@@ -1,0 +1,32 @@
+name: RPG Game System
+description: |
+  A role-playing game system with characters, weapons, magic spells, and enemies.
+keywords:
+  - Character
+  - Weapon
+  - Spell
+  - Enemy
+entity_hints:
+  core:
+    - Character
+    - Weapon
+    - Enemy
+  optional:
+    - Spell
+    - Armor
+    - Warrior
+    - Mage
+    - DamageDealer    # interface candidate
+relationship_hints:
+  inheritance:
+    - Character -> Warrior
+    - Character -> Mage
+  composition:
+    - Character -> Weapon
+    - Character -> Armor
+  association:
+    - Character -> Enemy
+  implements:
+    - Warrior -> DamageDealer
+    - Mage -> DamageDealer
+style: fantasy

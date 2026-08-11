@@ -1,0 +1,14 @@
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.hypothesis/
+
+# output/ is the live, regenerated-every-run working directory (overwritten on each
+# `python run_all.py`). It is intentionally NOT committed. A fixed, curated snapshot of
+# one real successful run lives in examples/ instead, so the repo has a concrete,
+# reviewable artifact without needing an API key to reproduce it. Do not remove this line
+# to "commit output/" - use examples/ for that instead.
+output/
+
+.env

@@ -1,0 +1,45 @@
+# Central Knowledge Base for OOP Concepts (RAG Injector)
+# Only concepts that are enabled in the preset will be injected into the LLM prompt.
+
+inheritance:
+  definition:
+    - "Represents an is-a relationship between classes, establishing a hierarchy."
+  rules:
+    - "Directionality: The 'source' MUST be the Subclass (Child), and the 'target' MUST be the Superclass (Parent). Do NOT invert this."
+    - "Depth: The inheritance depth defines the maximum number of consecutive inheritance edges from a leaf subclass to the root base class."
+  examples:
+    - "Depth 2: Car (source) -> Vehicle (target)"
+    - "Depth 3: CheckingAccount (source) -> BankAccount (target) -> Account (target)"
+
+abstraction:
+  definition:
+    - "Represents the concept of hiding complex implementation details behind an interface or abstract class."
+  rules:
+    - "Abstract Class: Set 'is_abstract: true' on any domain entity that serves as a base class and should not be instantiated directly."
+  examples:
+    - "Shape (is_abstract: true) -> Circle (concrete)"
+
+interface:
+  definition:
+    - "Defines a contract of behavior that implementing classes must fulfill."
+  rules:
+    - "Interface Class: Set 'is_interface: true' on any entity that acts purely as a contract."
+    - "Use the 'implementation' relation (or 'inheritance' if DSL lacks it) with source=ImplementingClass, target=Interface."
+  examples:
+    - "PaymentGateway (is_interface: true)"
+
+composition:
+  definition:
+    - "Represents a strict whole-part relationship where the child cannot exist independently of the parent."
+  rules:
+    - "Directionality: The 'source' MUST be the Owner (Whole), and the 'target' MUST be the Owned (Part)."
+  examples:
+    - "House (source) -> Room (target)"
+
+aggregation:
+  definition:
+    - "Represents a loose whole-part relationship where the child can exist independently of the parent."
+  rules:
+    - "Directionality: The 'source' MUST be the Owner (Whole), and the 'target' MUST be the Owned (Part)."
+  examples:
+    - "Department (source) -> Teacher (target)"

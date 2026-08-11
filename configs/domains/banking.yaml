@@ -1,0 +1,28 @@
+name: Banking System
+description: |
+  A banking application that manages customer accounts and financial transactions.
+keywords:
+  - Account
+  - Customer
+  - Transaction
+  - Bank
+entity_hints:
+  core:
+    - Account
+    - Customer
+  optional:
+    - TransactionLog
+    - NotificationService
+    - Auditable        # interface candidate: hành vi chung (log lại mọi thay đổi)
+    - InterestBearing   # interface candidate: hành vi chung (tính lãi)
+relationship_hints:
+  inheritance:
+    - Account -> BankAccount -> CheckingAccount -> PremiumCheckingAccount
+    - Account -> SavingsAccount
+  composition:
+    - Bank -> Account
+    - Bank -> Customer
+  implements:                        # nhóm mới, khớp preset interface.enabled
+    - SavingsAccount -> InterestBearing
+    - CheckingAccount -> Auditable
+style: realistic

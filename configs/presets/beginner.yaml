@@ -1,0 +1,10 @@
+difficulty: beginner
+
+structure:
+  classes:
+    min: 3
+    max: 4
+
+oop:
+  composition:
+    enabled: true

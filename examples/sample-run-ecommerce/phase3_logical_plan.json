@@ -1,0 +1,77 @@
+{
+  "design_decisions": [
+    "Modeled a flexible e-commerce platform featuring an abstract Product base class to represent any sellable entity in the catalog.",
+    "Created specialized concrete products like PhysicalProduct and DigitalProduct inheriting from the Product base class.",
+    "Introduced a Taxable interface to define behavior for tax-applicable items, with PhysicalProduct implementing this interface.",
+    "Established a composition relationship between Customer and ShoppingCart, indicating that the customer owns and manages a cart.",
+    "Created an Order entity composed of products and associated with a Payment record to handle the final purchase contract and transaction flow.",
+    "Marked Product as abstract through structural derivation because it acts as a base class with multiple concrete implementations.",
+    "Marked Taxable as an interface based on semantic signals and its role as an implementation target for concrete products."
+  ],
+  "domain_entities": [
+    {
+      "name": "Product",
+      "description": "Base catalog item representing any sellable entity",
+      "is_abstract": true,
+      "is_interface": false
+    },
+    {
+      "name": "PhysicalProduct",
+      "description": "Tangible product that requires shipping",
+      "is_abstract": false,
+      "is_interface": false,
+      "inherits_from": "Product",
+      "implements": [
+        "Taxable"
+      ]
+    },
+    {
+      "name": "DigitalProduct",
+      "description": "Intangible product delivered via download",
+      "is_abstract": false,
+      "is_interface": false,
+      "inherits_from": "Product"
+    },
+    {
+      "name": "Customer",
+      "description": "Platform user who makes purchases and owns a shopping cart",
+      "is_abstract": false,
+      "is_interface": false,
+      "composes_with": [
+        "ShoppingCart"
+      ]
+    },
+    {
+      "name": "ShoppingCart",
+      "description": "Temporary container for items selected by the customer",
+      "is_abstract": false,
+      "is_interface": false
+    },
+    {
+      "name": "Order",
+      "description": "Finalized purchase contract generated from the shopping cart",
+      "is_abstract": false,
+      "is_interface": false,
+      "composes_with": [
+        "Product"
+      ],
+      "associated_with": [
+        "Payment"
+      ]
+    }
+  ],
+  "support_entities": [
+    {
+      "name": "Taxable",
+      "description": "Interface defining behavior for tax-applicable items",
+      "is_abstract": false,
+      "is_interface": true
+    },
+    {
+      "name": "Payment",
+      "description": "Transaction record associated with an order",
+      "is_abstract": false,
+      "is_interface": false
+    }
+  ]
+}

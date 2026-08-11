@@ -1,0 +1,32 @@
+name: Library Management System
+description: |
+  A system to manage books, library members, and borrowing transactions.
+keywords:
+  - Book
+  - Member
+  - Loan
+  - Librarian
+entity_hints:
+  core:
+    - Book
+    - Member
+    - Loan
+  optional:
+    - Librarian
+    - Library
+    - ReferenceBook
+    - FictionBook
+    - Borrowable      # interface candidate
+relationship_hints:
+  inheritance:
+    - Book -> ReferenceBook
+    - Book -> FictionBook
+  composition:
+    - Library -> Book
+    - Library -> Member
+  association:
+    - Member -> Loan
+    - Loan -> Book
+  implements:
+    - FictionBook -> Borrowable
+style: realistic

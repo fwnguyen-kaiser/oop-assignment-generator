@@ -1,0 +1,36 @@
+name: Animal Kingdom
+
+description: |
+  A biological hierarchy where animals share common traits
+  and specialized species inherit behaviors from broader categories.
+
+keywords:
+  - Animal
+  - Mammal
+  - Bird
+  - Dog
+  - Cat
+
+entity_hints:
+  core:
+    - Animal
+    - Species
+
+  optional:
+    - Habitat
+    - Behavior
+    - Trainable        # interface candidate: hành vi chung (huấn luyện được)
+
+relationship_hints:
+  inheritance:
+    - Animal -> Mammal -> Dog
+    - Animal -> Bird
+
+  composition:
+    - Animal -> BodyPart
+
+  implements:                        # nhóm mới, khớp preset interface.enabled
+    - Dog -> Trainable
+
+style:
+  educational

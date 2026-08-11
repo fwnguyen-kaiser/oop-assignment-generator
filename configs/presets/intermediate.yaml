@@ -1,0 +1,19 @@
+difficulty: intermediate
+
+structure:
+  classes:
+    min: 4
+    max: 6
+
+oop:
+  inheritance:
+    enabled: true
+    max_depth: 2
+  abstraction:
+    enabled: false
+  interface:
+    enabled: false
+  composition:
+    enabled: true
+  aggregation:
+    enabled: true

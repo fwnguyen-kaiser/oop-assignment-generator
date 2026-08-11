@@ -1,0 +1,45 @@
+classDiagram
+    class Product {
+        <<abstract>>
+        -String name
+        -double price
+        +calculateDiscount(double percentage) double
+    }
+    class PhysicalProduct {
+        -double weight
+        +calculateTax() double
+    }
+    Product <|-- PhysicalProduct
+    Taxable <|.. PhysicalProduct
+    class DigitalProduct {
+        -double fileSize
+        +download() void
+    }
+    Product <|-- DigitalProduct
+    class Customer {
+        -List~ShoppingCart~ shoppingcarts
+        -String email
+        -String password
+        +login(String inputPassword) boolean
+    }
+    Customer *-- ShoppingCart
+    class ShoppingCart {
+        -int itemCount
+        +clearCart() void
+    }
+    class Order {
+        -List~Product~ products
+        -Payment payment
+        -String status
+        +processOrder() void
+    }
+    Order *-- Product
+    Order --> Payment
+    class Taxable {
+        <<interface>>
+        +calculateTax()* double
+    }
+    class Payment {
+        -double amount
+        +executePayment() boolean
+    }
