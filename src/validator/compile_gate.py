@@ -146,9 +146,33 @@ class CompileVerificationGate:
                 f.write(code)
 
     def _apply_tier1_fix(self, error: Dict, class_map: Dict[str, JavaClass]) -> bool:
+        """Taxonomy note (audited, not just asserted): of the 5 kinds handled here, only
+        `missing_symbol_class` is genuinely undecidable from the AST alone - it needs a
+        classpath/symbol table equivalent to what a compiler already provides for free.
+
+        The other 4 (`private_access`, `duplicate_method`, `invalid_override`,
+        `missing_override`) are each FULLY decidable via pure AST analysis, and are
+        already supposed to be prevented before this ever runs, by their primary owner:
+          - private_access     -> content_repair_pipeline.py 5.8 (protected promotion)
+          - duplicate_method    -> content_repair_pipeline.py 5.6 (method self-dedupe)
+          - invalid_override    -> content_repair_pipeline.py 5.7 (invalid override rename)
+          - missing_override    -> content_repair_pipeline.py 5.9 (contract fulfillment)
+        If any of these 4 ever reach here, either (a) the Taxonomy A rule above it had a
+        bug in isolation (happened twice already this session - bare-identifier and
+        inherited-accessor-collision fixes), or (b) more interestingly, two individually
+        correct Taxonomy A rules interacted badly - see docs/logical-plan-pipeline-report.md
+        4.4's "multi-implements self-cancels" case: rule 2.1 and rule 2.6 were each
+        correct on their own, but 2.6 forgot to count an edge type that only exists
+        because of 2.1's fix, and no single rule's own unit test could ever catch that
+        since it only manifests in the ordered combination of both. This branch is kept
+        for that reason: it is a ground-truth cross-validation pass over the COMBINED
+        output of every Taxonomy A rule together, which is structurally different from,
+        and not replaced by, each rule's own isolated unit tests - not because the check
+        itself requires a compiler to be decided in the first place.
+        """
         kind = error["kind"]
 
-        if kind == "private_access":
+        if kind == "private_access":  # safety net for 5.8, not compiler-exclusive
             owner = class_map.get(error["owner"])
             if not owner:
                 return False
@@ -159,7 +183,7 @@ class CompileVerificationGate:
                     return True
             return False
 
-        if kind == "duplicate_method":
+        if kind == "duplicate_method":  # safety net for 5.6, not compiler-exclusive
             owner = class_map.get(error["owner"])
             if not owner:
                 return False
@@ -177,7 +201,7 @@ class CompileVerificationGate:
                 return True
             return False
 
-        if kind == "invalid_override":
+        if kind == "invalid_override":  # safety net for 5.7, not compiler-exclusive
             child = class_map.get(error["child"])
             if not child or not error.get("method"):
                 return False
@@ -189,7 +213,7 @@ class CompileVerificationGate:
                     return True
             return False
 
-        if kind == "missing_override":
+        if kind == "missing_override":  # safety net for 5.9, not compiler-exclusive
             child = class_map.get(error["child"])
             parent = class_map.get(error["parent"])
             if not child or not parent:
@@ -204,7 +228,7 @@ class CompileVerificationGate:
             self._log(f"missing_override: added stub {error['child']}.{error['method']}() to satisfy {error['parent']}")
             return True
 
-        if kind == "missing_symbol_class":
+        if kind == "missing_symbol_class":  # the one genuinely compiler-exclusive case
             symbol = error["symbol"]
             if symbol in COMMON_TYPE_IMPORTS:
                 self.java_builder.standard_types[symbol] = COMMON_TYPE_IMPORTS[symbol]
