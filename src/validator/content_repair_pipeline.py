@@ -29,7 +29,21 @@ def default_body_for_return_type(return_type: Optional[JavaTypeRef]) -> Optional
     return "return null;"
 
 
-def _signature(method: JavaMethod) -> tuple:
+def method_signature(method: JavaMethod) -> tuple:
+    """The canonical JLS identity of a Java method: (name, parameter types) - NOT name
+    alone, since Java allows overloading (two methods sharing a name with different
+    parameters). Return type is deliberately excluded, matching JLS SS8.4.2 (return type
+    is not part of a method's signature for overload resolution/erasure purposes).
+
+    This is the ONE place that identity should be computed - every dict/set keyed by
+    "which method is this" should key off this tuple, not off `.name` alone. A method
+    identity bug (keying by name only, e.g. src/llm/gemini.py's ContractFill/fill_map
+    before this fix) is the exact same class of bug as mini-grader's earlier class-
+    identity bug (keying by simple name instead of qualified_name for nested classes) -
+    same root cause (identity key missing information the JLS actually requires for
+    that kind of element), different element kind. Applies the general principle: every
+    identity key for a Java element must match that element kind's real JLS identity,
+    not a convenient partial key."""
     return (method.name, tuple(p.type_ref.name for p in method.parameters))
 
 
@@ -128,7 +142,7 @@ class ContentRepairPipeline:
             seen_sigs = set()
             deduped_methods = []
             for m in cls.methods:
-                sig = _signature(m)
+                sig = method_signature(m)
                 if sig in seen_sigs:
                     self.log_action("4.2_dedupe_method", cls.name, f"duplicate method signature '{m.name}({', '.join(sig[1])})'", "dropped duplicate")
                     continue
@@ -138,9 +152,9 @@ class ContentRepairPipeline:
 
         # 4.3 Rename methods that would be invalid overrides (same signature, different return type)
         for cls in ast_classes:
-            inherited_by_sig = {_signature(m): m for m in self._get_inherited_methods(cls.name, class_map)}
+            inherited_by_sig = {method_signature(m): m for m in self._get_inherited_methods(cls.name, class_map)}
             for m in cls.methods:
-                sig = _signature(m)
+                sig = method_signature(m)
                 if sig in inherited_by_sig:
                     parent_m = inherited_by_sig[sig]
                     parent_ret = parent_m.return_type.name if parent_m.return_type else "void"
@@ -202,17 +216,17 @@ class ContentRepairPipeline:
                     iface = class_map.get(iface_name)
                     if iface and iface.is_interface:
                         for m in iface.methods:
-                            required[_signature(m)] = m
+                            required[method_signature(m)] = m
                 if c.is_abstract:
                     for m in c.methods:
                         if m.body is None:
-                            required[_signature(m)] = m
+                            required[method_signature(m)] = m
 
             fulfilled = set()
             for c in chain:
                 for m in c.methods:
                     if m.body is not None:
-                        fulfilled.add(_signature(m))
+                        fulfilled.add(method_signature(m))
 
             missing_methods = [m for key, m in required.items() if key not in fulfilled]
             if missing_methods:

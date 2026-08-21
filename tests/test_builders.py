@@ -1,9 +1,63 @@
-from src.schemas.java_ast import JavaClass, JavaField, JavaTypeRef
+from src.schemas.java_ast import JavaClass, JavaField, JavaTypeRef, JavaMethod
 from src.schemas.logical_plan import LogicalPlan, SemanticEntity
 from src.builders.java_builder import JavaBuilder
 from src.builders.mermaid_builder import MermaidBuilder
 from src.pipeline import compile_logical_plan
 from src.schemas.logical_plan import SketchPlan, SketchEntity, SketchRelationship
+
+
+def test_abstract_method_on_abstract_class_renders_with_abstract_keyword():
+    """Regression test for a real bug: an abstract method on a regular (non-interface)
+    abstract class rendered as `public double foo(double x);` - missing the literal
+    `abstract` keyword Java requires there, causing a genuine javac error ("missing
+    method body, or declare abstract"). Found live via the real Gemini API once
+    is_abstract started actually being set True (src/detail_pipeline.py's Phase
+    5a-i/5a-ii split) - this test locks the fix in so it can't silently regress again,
+    since nothing had ever exercised this render path before that."""
+    cls = JavaClass(
+        name="Product",
+        is_abstract=True,
+        methods=[
+            JavaMethod(
+                modifier="public",
+                return_type=JavaTypeRef(name="double"),
+                name="calculateDiscount",
+                parameters=[],
+                body=None,
+                is_abstract=True,
+            )
+        ],
+    )
+    rendered = JavaBuilder().render_class(cls, {"Product": cls})
+    assert "public abstract double calculateDiscount();" in rendered
+    # No body block should be emitted for an abstract method - it must end in `;`,
+    # never open a `{`.
+    assert "calculateDiscount() {" not in rendered
+
+
+def test_interface_method_does_not_get_a_redundant_abstract_keyword():
+    """Interface methods are implicitly abstract (JLS SS9.4) - the renderer should NOT
+    add the literal `abstract` keyword there, only for a regular abstract class's own
+    abstract method (see test above). Both paths share the same `is_interface or
+    m.is_abstract` condition in JavaBuilder.render_class, so this guards against a
+    future edit accidentally adding "abstract" unconditionally for both cases."""
+    cls = JavaClass(
+        name="Shape",
+        is_interface=True,
+        methods=[
+            JavaMethod(
+                modifier="public",
+                return_type=JavaTypeRef(name="double"),
+                name="area",
+                parameters=[],
+                body=None,
+                is_abstract=False,
+            )
+        ],
+    )
+    rendered = JavaBuilder().render_class(cls, {"Shape": cls})
+    assert "public double area();" in rendered
+    assert "abstract" not in rendered
 
 
 def test_bigdecimal_field_gets_import_and_compiles_conceptually():

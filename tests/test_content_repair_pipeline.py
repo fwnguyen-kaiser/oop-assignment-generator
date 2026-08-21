@@ -1,5 +1,5 @@
 from src.schemas.java_ast import JavaClass, JavaField, JavaMethod, JavaParameter, JavaTypeRef
-from src.validator.content_repair_pipeline import ContentRepairPipeline, default_body_for_return_type
+from src.validator.content_repair_pipeline import ContentRepairPipeline, default_body_for_return_type, method_signature
 
 
 def _field(name, type_name="double"):
@@ -181,6 +181,46 @@ def test_own_field_access_not_affected_by_protected_promotion():
     cls = JavaClass(name="Account", fields=[_field("balance")], methods=[_method("reset", body="this.balance = 0;")])
     result = ContentRepairPipeline().repair([cls])
     assert result[0].fields[0].modifier == "private"
+
+
+def test_method_signature_distinguishes_overloads():
+    """method_signature() is the canonical JLS method identity (name + parameter types,
+    NOT name alone) - two overloads sharing a name must produce different tuples, or
+    every dict/set keyed off it (e.g. src/detail_pipeline.py's fill_map) would silently
+    collide two different methods into one."""
+    m1 = _method("calculate", params=[JavaParameter(type_ref=JavaTypeRef(name="int"), name="x")], return_type="int", body="return x;")
+    m2 = _method("calculate", params=[JavaParameter(type_ref=JavaTypeRef(name="double"), name="x")], return_type="double", body="return x;")
+    assert method_signature(m1) != method_signature(m2)
+    assert method_signature(m1) == ("calculate", ("int",))
+    assert method_signature(m2) == ("calculate", ("double",))
+
+
+def test_fill_map_keyed_by_full_signature_disambiguates_overloads():
+    """Regression test for a real bug: src/detail_pipeline.py used to key its
+    class_name/method_name -> body merge dict by (class_name, method_name) alone, which
+    silently collides two overloaded methods sharing a name (e.g. calculate(int) and
+    calculate(double)) into a single dict entry - the LAST fill in the response list
+    would silently overwrite the body for BOTH methods. This reproduces that exact
+    merge pattern (now keyed by the full method_signature() tuple, matching
+    src/detail_pipeline.py's actual fix) and proves each overload gets its own,
+    correct body instead of one clobbering the other."""
+    int_overload = _method("calculate", params=[JavaParameter(type_ref=JavaTypeRef(name="int"), name="x")], return_type="int", body=None)
+    double_overload = _method("calculate", params=[JavaParameter(type_ref=JavaTypeRef(name="double"), name="x")], return_type="double", body=None)
+
+    # Simulates ContractFill entries the LLM would return, each echoing back its own param_types.
+    fake_fills = [
+        {"class_name": "Calc", "method_name": "calculate", "param_types": ["int"], "body": "return x * 2;"},
+        {"class_name": "Calc", "method_name": "calculate", "param_types": ["double"], "body": "return x * 2.5;"},
+    ]
+    fill_map = {(f["class_name"], f["method_name"], tuple(f["param_types"])): f["body"] for f in fake_fills}
+
+    int_overload.body = fill_map.get(("Calc",) + method_signature(int_overload))
+    double_overload.body = fill_map.get(("Calc",) + method_signature(double_overload))
+
+    assert int_overload.body == "return x * 2;"
+    assert double_overload.body == "return x * 2.5;"
+    # The whole point: they must NOT have ended up with the same body.
+    assert int_overload.body != double_overload.body
 
 
 def test_default_body_for_return_type():

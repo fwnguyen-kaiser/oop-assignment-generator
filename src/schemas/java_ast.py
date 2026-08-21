@@ -65,6 +65,13 @@ class SignaturesResponse(BaseModel):
 class ContractFill(BaseModel):
     class_name: str = Field(description="Name of the class that needs this method implemented")
     method_name: str = Field(description="Exact method name being implemented, matching the required signature")
+    param_types: List[str] = Field(
+        default_factory=list,
+        description="The exact parameter TYPE names, in order, of the specific method being filled (e.g. "
+        "[\"int\", \"String\"] for foo(int a, String b)). Required to disambiguate overloaded methods - "
+        "(class_name, method_name) alone is NOT a valid Java method identity, two methods can share a name "
+        "with different parameters. Empty list for a no-arg method."
+    )
     body: str = Field(description="Short Java statement(s) implementing real domain logic for this method, no braces")
 
 class ContractFillResponse(BaseModel):

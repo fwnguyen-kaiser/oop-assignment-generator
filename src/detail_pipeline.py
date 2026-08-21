@@ -56,7 +56,7 @@ def run_detail_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", pres
                 for m in sig.methods
             )
 
-    from src.validator.content_repair_pipeline import ContentRepairPipeline, default_body_for_return_type
+    from src.validator.content_repair_pipeline import ContentRepairPipeline, default_body_for_return_type, method_signature
     content_repair = ContentRepairPipeline()
 
     # 3b. Phase 5a-ii (structural pass): dedupe/rename/drop colliding signatures BEFORE
@@ -89,10 +89,15 @@ def run_detail_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", pres
             print(f"[WARNING] Failed to fetch method bodies via LLM: {e}")
             fills = []
 
-        fill_map = {(f.class_name, f.method_name): f.body for f in fills}
+        # Keyed by the full JLS method signature (name + parameter TYPES), not name alone -
+        # (class_name, method_name) is not a valid Java method identity, two methods can
+        # share a name with different parameters (overloading). See method_signature()'s
+        # docstring for why this matters and the mini-grader precedent for this exact class
+        # of bug.
+        fill_map = {(f.class_name, f.method_name, tuple(f.param_types)): f.body for f in fills}
         for class_name, methods in pending_bodies.items():
             for m in methods:
-                body = fill_map.get((class_name, m.name))
+                body = fill_map.get((class_name,) + method_signature(m))
                 if body is None:
                     body = default_body_for_return_type(m.return_type)
                     print(f"[CONTENT_REPAIR] 5a-ii fallback stub used for {class_name}.{m.name}")
@@ -117,12 +122,14 @@ def run_detail_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", pres
             print(f"[WARNING] Failed to fetch contract method implementations via LLM: {e}")
             fills = []
 
-        fill_map = {(f.class_name, f.method_name): f.body for f in fills}
+        # See the identical fix above (5a-ii) for why this is keyed by full JLS method
+        # signature, not (class_name, method_name) alone.
+        fill_map = {(f.class_name, f.method_name, tuple(f.param_types)): f.body for f in fills}
         class_map = {c.name: c for c in ast_classes}
         for class_name, methods in missing.items():
             cls = class_map[class_name]
             for m in methods:
-                body = fill_map.get((class_name, m.name))
+                body = fill_map.get((class_name,) + method_signature(m))
                 if body is None:
                     body = default_body_for_return_type(m.return_type)
                     print(f"[CONTENT_REPAIR] 4.4/4.5 fallback stub used for {class_name}.{m.name}")

@@ -305,14 +305,20 @@ If the domain is 'E-Commerce' and soft guidance asks for ~4 classes:
         for class_name, methods in pending.items():
             for m in methods:
                 ret = m.return_type.name if m.return_type else "void"
+                param_types = [p.type_ref.name for p in m.parameters]
                 params = ", ".join(f"{p.type_ref.name} {p.name}" for p in m.parameters)
-                lines.append(f"- Class '{class_name}' method: {ret} {m.name}({params})")
+                lines.append(f"- Class '{class_name}' method: {ret} {m.name}({params}) [param_types: {param_types}]")
 
         lines.append("\n--- TASK ---")
         lines.append(
             "For each method above, provide a VERY SHORT stub body (e.g. 'return 0;', 'this.hp -= damage;'). "
             "Always prefix field access with 'this.' (e.g. 'this.balance', not bare 'balance'), including fields "
             "inherited from a parent class."
+        )
+        lines.append(
+            "CRITICAL: echo back the exact `param_types` list shown above for each method you fill, unchanged. "
+            "(class_name, method_name) alone does NOT uniquely identify a Java method - two methods can share a "
+            "name with different parameters (overloading) - param_types is what disambiguates which one you filled."
         )
 
         from src.schemas.java_ast import ContractFillResponse
@@ -411,14 +417,20 @@ If the domain is 'E-Commerce' and soft guidance asks for ~4 classes:
         for class_name, methods in missing.items():
             for m in methods:
                 ret = m.return_type.name if m.return_type else "void"
+                param_types = [p.type_ref.name for p in m.parameters]
                 params = ", ".join(f"{p.type_ref.name} {p.name}" for p in m.parameters)
-                lines.append(f"- Class '{class_name}' must implement: {ret} {m.name}({params})")
+                lines.append(f"- Class '{class_name}' must implement: {ret} {m.name}({params}) [param_types: {param_types}]")
 
         lines.append("\n--- TASK ---")
         lines.append(
             "For each entry above, provide a short, real Java statement body (e.g. 'return this.balance * this.rate;'). "
             "Do NOT return empty or trivial placeholder bodies like 'return 0;' unless the domain genuinely has no better answer. "
             "Always prefix field access with 'this.' (e.g. 'this.balance', not bare 'balance'), including fields inherited from a parent class."
+        )
+        lines.append(
+            "CRITICAL: echo back the exact `param_types` list shown above for each method you fill, unchanged. "
+            "(class_name, method_name) alone does NOT uniquely identify a Java method - two methods can share a "
+            "name with different parameters (overloading) - param_types is what disambiguates which one you filled."
         )
 
         from src.schemas.java_ast import ContractFillResponse
