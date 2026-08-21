@@ -223,6 +223,34 @@ def test_fill_map_keyed_by_full_signature_disambiguates_overloads():
     assert int_overload.body != double_overload.body
 
 
+def test_blank_llm_body_triggers_fallback_same_as_missing_fill():
+    """Regression test for a real bug found live: Gemini returned body="" (present but
+    blank, not an outright missing fill) for a couple of void interface-contract
+    methods. `if body is None:` alone let that straight through unnoticed - harmless
+    for void (an empty block still compiles), but a guaranteed "missing return
+    statement" compile error waiting to happen for any non-void method. Reproduces
+    src/detail_pipeline.py's actual merge+fallback pattern for both the blank-string
+    case and the genuinely-missing-fill case, proving both now correctly fall back to
+    default_body_for_return_type()."""
+    void_method = _method("borrowItem", return_type="void", body=None)
+    int_method = _method("getCount", return_type="int", body=None)
+
+    fake_fills = [
+        {"class_name": "Book", "method_name": "borrowItem", "param_types": [], "body": ""},
+        # getCount is intentionally absent from fills entirely - the other failure mode.
+    ]
+    fill_map = {(f["class_name"], f["method_name"], tuple(f["param_types"])): f["body"] for f in fake_fills}
+
+    for m in (void_method, int_method):
+        body = fill_map.get(("Book",) + method_signature(m))
+        if body is None or not body.strip():
+            body = default_body_for_return_type(m.return_type)
+        m.body = body
+
+    assert void_method.body is None  # void's correct "default" is simply no statement
+    assert int_method.body == "return 0;"  # int's fallback must be a real return, not blank
+
+
 def test_default_body_for_return_type():
     assert default_body_for_return_type(JavaTypeRef(name="int")) == "return 0;"
     assert default_body_for_return_type(JavaTypeRef(name="boolean")) == "return false;"

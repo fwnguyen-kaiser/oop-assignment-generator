@@ -98,7 +98,13 @@ def run_detail_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", pres
         for class_name, methods in pending_bodies.items():
             for m in methods:
                 body = fill_map.get((class_name,) + method_signature(m))
-                if body is None:
+                # A present-but-blank body (the LLM answered with "" or whitespace only,
+                # not an outright missing fill) is just as useless as no fill at all -
+                # real bug found live: Gemini returned body="" for a couple of void
+                # methods, which `body is None` alone let straight through silently (void
+                # happens to render fine either way, but a non-void method with an empty
+                # body is a guaranteed "missing return statement" compile error).
+                if body is None or not body.strip():
                     body = default_body_for_return_type(m.return_type)
                     print(f"[CONTENT_REPAIR] 5a-ii fallback stub used for {class_name}.{m.name}")
                 m.body = body
@@ -130,7 +136,9 @@ def run_detail_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", pres
             cls = class_map[class_name]
             for m in methods:
                 body = fill_map.get((class_name,) + method_signature(m))
-                if body is None:
+                # See the identical fix above (5a-ii) - a present-but-blank body is just
+                # as useless as a missing one.
+                if body is None or not body.strip():
                     body = default_body_for_return_type(m.return_type)
                     print(f"[CONTENT_REPAIR] 4.4/4.5 fallback stub used for {class_name}.{m.name}")
                 new_method = m.model_copy(deep=True)
