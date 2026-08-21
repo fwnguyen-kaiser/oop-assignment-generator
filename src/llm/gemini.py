@@ -210,35 +210,45 @@ If the domain is 'E-Commerce' and soft guidance asks for ~4 classes:
         return response.parsed.decisions
 
     @tenacity.retry(wait=tenacity.wait_exponential(multiplier=2, min=5, max=65), stop=tenacity.stop_after_attempt(5))
-    def enrich_ast_with_details(self, java_ast_json: str, domain_name: str, domain_desc: str) -> list:
+    def generate_signatures(self, java_ast_json: str, domain_name: str, domain_desc: str) -> list:
+        """Phase 5a-i - SIGNATURES ONLY, no method bodies. This used to be a single
+        enrich_ast_with_details() call producing signature AND body together (removed -
+        no longer called anywhere after this split; DetailsResponse/DetailedEntity are
+        still used by fix_compile_errors()'s Tier 2 repair path, a different call site).
+        Splits into signature-then-body (see
+        src/validator/content_repair_pipeline.py's docstring for why): the response
+        schema (SignaturesResponse/SignatureMethod) structurally has no `body` field,
+        so the LLM cannot spend tokens on implementation logic for a method that
+        ContentRepairPipeline.repair() might immediately dedupe/rename/drop as an
+        accessor collision or invalid override."""
         system_instruction = (
             "You are an expert Java Developer.\n"
-            "You are in Phase 4 (Detailed Code Generation). Your job is to fill in the missing attributes and methods for the provided AST."
+            "You are in Phase 5a-i (Structural Detailing). Your job is to decide WHICH attributes and method "
+            "SIGNATURES the provided AST needs - names, types, parameters. Do NOT write implementation logic yet, "
+            "that happens in a later step once these signatures are finalized."
         )
-        
+
         prompt = [
             f"--- DOMAIN CONTEXT ---\nTopic: {domain_name}\nDescription: {domain_desc}",
             "\n--- CURRENT AST (STRUCTURAL) ---",
             "The following JSON represents the structural skeleton of the system. Note that relationship fields (e.g. List<Target>) are ALREADY present.",
             java_ast_json,
             "\n--- TASK ---",
-            "For each class in the AST, invent basic primitive fields (like String name, double balance, int hp) and business methods (like attack(), deposit()).",
-            "Provide a VERY SHORT stub body for each method (e.g. 'return 0;', 'this.hp -= damage;').",
-            "Always prefix field access with 'this.' (e.g. 'this.balance', not bare 'balance') for clarity, including fields inherited from a parent class.",
-            "Do NOT invent getter/setter methods (e.g. getBalance(), setBalance()) for any field - those are generated automatically. Only invent real business-logic methods.",
+            "For each class in the AST, invent basic primitive fields (like String name, double balance, int hp) and business method SIGNATURES (like attack(), deposit()).",
+            "Do NOT invent getter/setter methods (e.g. getBalance(), setBalance()) for any field - those are generated automatically. Only invent real business-logic method signatures.",
             "If a class has a non-empty `implements` list, decide that interface's method signature(s) FIRST, then make sure the implementing class includes a method with the EXACT same name and parameter list (this applies even if the interface class itself appears later in this same AST/response).",
-            "Do NOT output the existing relationship fields again. Only output the NEW fields and methods."
+            "Do NOT output the existing relationship fields again. Only output the NEW fields and method signatures."
         ]
-        
-        from src.schemas.java_ast import DetailsResponse
-        
+
+        from src.schemas.java_ast import SignaturesResponse
+
         response = self.client.models.generate_content(
-            model=self.model_name, # Use existing flash model
+            model=self.model_name,
             contents="\n".join(prompt),
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
                 response_mime_type="application/json",
-                response_schema=DetailsResponse,
+                response_schema=SignaturesResponse,
                 temperature=0.4
             ),
         )
@@ -247,6 +257,81 @@ If the domain is 'E-Commerce' and soft guidance asks for ~4 classes:
             raise ValueError(f"Structured output parse failed. Raw text: {response.text}")
 
         return response.parsed.entities
+
+    @tenacity.retry(wait=tenacity.wait_exponential(multiplier=2, min=5, max=65), stop=tenacity.stop_after_attempt(5))
+    def fill_signature_bodies(self, pending: dict, ast_classes: list, domain_name: str, domain_desc: str) -> list:
+        """Phase 5a-ii - writes bodies for a signature set that ContentRepairPipeline.repair()
+        has ALREADY deduped/renamed/pruned (see generate_signatures() above). `pending` is
+        {class_name: [JavaMethod, ...]} - same shape as fill_missing_contract_methods()'s
+        `missing` param, reusing the same ContractFill/ContractFillResponse schema since the
+        task shape (given a method signature, return a body) is identical; only the framing
+        differs (these are freshly-invented business methods, not contract-fulfillment gaps).
+
+        `ast_classes` is the FULL current class list (all fields/methods, every class, not
+        just the ones needing bodies) - required, not optional context. The old single-call
+        enrich_ast_with_details() implicitly had this: it invented every class's fields AND
+        bodies together in one response, so it always knew what fields (hence what
+        constructor signature - see JavaBuilder.render_class, which auto-generates a
+        constructor from ALL of a class's fields, there is no separate constructors field
+        anywhere in the AST) every other class would end up with. Splitting body-writing
+        into its own call loses that implicit visibility unless it's passed explicitly -
+        confirmed by a real run where the LLM wrote `new Customer()` for a class whose
+        auto-generated constructor actually required 3 args, because it couldn't see
+        Customer's final field list. Do not remove this parameter to \"simplify\" the call."""
+        system_instruction = (
+            "You are an expert Java Developer.\n"
+            "You are in Phase 5a-ii (Implementation). The method SIGNATURES below have already been "
+            "finalized (deduplicated, renamed if they conflicted with an inherited signature) - your job is "
+            "ONLY to write a short, real implementation body for each one."
+        )
+
+        classes_json = "\n".join(
+            f"--- Class: {c.name} ---\n" + c.model_dump_json(indent=2, exclude={"methods"}) for c in ast_classes
+        )
+
+        lines = [
+            f"--- DOMAIN CONTEXT ---\nTopic: {domain_name}\nDescription: {domain_desc}",
+            "\n--- FULL CURRENT CLASS STRUCTURE (all classes, fields only - for reference when your body "
+            "needs to construct or reference another class) ---",
+            classes_json,
+            "\n--- IMPORTANT: CONSTRUCTOR CONVENTION ---",
+            "Every class's constructor is auto-generated to take ALL of that class's fields listed above as "
+            "parameters, in the order shown (inherited fields first, then its own), and NOTHING else. There is "
+            "NEVER a no-argument constructor unless a class has zero fields. If your body needs to construct "
+            "another class (e.g. `new Customer(...)`), you MUST pass exactly that class's full field list as "
+            "arguments, in that order - never assume a no-arg or partial constructor exists.",
+            "\n--- METHOD SIGNATURES NEEDING BODIES ---",
+        ]
+        for class_name, methods in pending.items():
+            for m in methods:
+                ret = m.return_type.name if m.return_type else "void"
+                params = ", ".join(f"{p.type_ref.name} {p.name}" for p in m.parameters)
+                lines.append(f"- Class '{class_name}' method: {ret} {m.name}({params})")
+
+        lines.append("\n--- TASK ---")
+        lines.append(
+            "For each method above, provide a VERY SHORT stub body (e.g. 'return 0;', 'this.hp -= damage;'). "
+            "Always prefix field access with 'this.' (e.g. 'this.balance', not bare 'balance'), including fields "
+            "inherited from a parent class."
+        )
+
+        from src.schemas.java_ast import ContractFillResponse
+
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents="\n".join(lines),
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                response_mime_type="application/json",
+                response_schema=ContractFillResponse,
+                temperature=0.4
+            ),
+        )
+
+        if response.parsed is None:
+            raise ValueError(f"Structured output parse failed. Raw text: {response.text}")
+
+        return response.parsed.fills
 
     @tenacity.retry(wait=tenacity.wait_exponential(multiplier=2, min=3, max=15), stop=tenacity.stop_after_attempt(2))
     def fix_compile_errors(self, broken_classes: list, javac_stderr: str, domain_name: str, domain_desc: str) -> list:

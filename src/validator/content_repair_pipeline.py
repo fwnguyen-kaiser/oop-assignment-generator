@@ -34,8 +34,17 @@ def _signature(method: JavaMethod) -> tuple:
 
 
 class ContentRepairPipeline:
-    """Phase 4.5 — deterministic repair of LLM-invented fields/methods (Taxonomy A)
-    plus detection of unfulfilled interface/abstract-method contracts (Taxonomy B)."""
+    """Phase 5a-ii — deterministic repair of LLM-invented fields/methods (Taxonomy A)
+    plus detection of unfulfilled interface/abstract-method contracts (Taxonomy B).
+
+    repair() is called TWICE by src/detail_pipeline.py, deliberately: once on
+    signature-only methods (all bodies None, right after generate_signatures() and
+    BEFORE fill_signature_bodies()) so a duplicate/colliding/invalid-override signature
+    is caught and pruned before spending an LLM call writing a body for it that would
+    just get thrown away; once again after bodies exist, since rule 4.8 (protected-
+    promotion) needs real body text to know what a method actually accesses and is a
+    no-op on the first, body-less pass. Idempotent either way - a signature set already
+    clean from the first pass doesn't get re-mangled by the second."""
 
     def __init__(self):
         self.action_log = []

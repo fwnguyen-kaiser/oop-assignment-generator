@@ -4,7 +4,7 @@ import yaml
 from src.llm.gemini import GeminiProvider
 from src.schemas.domain import DomainConfig
 from src.schemas.blueprint import BlueprintPreset
-from src.schemas.java_ast import JavaClass, DetailedEntity
+from src.schemas.java_ast import JavaClass, JavaMethod
 from src.builders.java_builder import JavaBuilder
 
 def run_detail_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", preset_path: str = "configs/presets/intermediate.yaml"):
@@ -35,26 +35,75 @@ def run_detail_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", pres
         raise ValueError("GEMINI_API_KEY not found in environment or .env file")
         
     provider = GeminiProvider(api_key=api_key)
-    detailed_entities = provider.enrich_ast_with_details(ast_json_str, domain.name, domain.description)
-    
-    print(f"LLM generated details for {len(detailed_entities)} classes.")
-    
-    # 4. Merge details into AST
-    detailed_map = {e.name: e for e in detailed_entities}
-    
+
+    # 3a. Phase 5a-i: LLM invents field/method SIGNATURES only (no bodies yet - the
+    # response schema structurally has no body field, see GeminiProvider.generate_signatures).
+    signature_entities = provider.generate_signatures(ast_json_str, domain.name, domain.description)
+    print(f"LLM generated signatures for {len(signature_entities)} classes.")
+
+    signature_map = {e.name: e for e in signature_entities}
     for cls in ast_classes:
-        if cls.name in detailed_map:
-            details = detailed_map[cls.name]
+        if cls.name in signature_map:
+            sig = signature_map[cls.name]
             # Append LLM fields (primitive) to existing fields (relationships)
-            cls.fields.extend(details.fields)
-            # Append LLM methods
-            cls.methods.extend(details.methods)
-            
-    # 4.5a Content Repair: structural/naming cleanup (deterministic, no LLM)
+            cls.fields.extend(sig.fields)
+            # Append LLM method signatures, body=None until Phase 5a-ii below
+            cls.methods.extend(
+                JavaMethod(
+                    modifier=m.modifier, return_type=m.return_type, name=m.name,
+                    parameters=m.parameters, body=None, is_abstract=m.is_abstract,
+                )
+                for m in sig.methods
+            )
+
     from src.validator.content_repair_pipeline import ContentRepairPipeline, default_body_for_return_type
     content_repair = ContentRepairPipeline()
+
+    # 3b. Phase 5a-ii (structural pass): dedupe/rename/drop colliding signatures BEFORE
+    # spending an LLM call on bodies for methods that would just get pruned. All bodies
+    # are still None here, so rule 4.8 (protected-promotion, which needs real body text
+    # to know what a method actually accesses) is a no-op this pass - it fires on the
+    # second call below, after bodies exist.
     ast_classes = content_repair.repair(ast_classes)
     for log in content_repair.action_log:
+        print(f"[CONTENT_REPAIR] {log['step']} on {log['node']}: {log['detail']} -> {log['action']}")
+    _log_count_after_3b = len(content_repair.action_log)
+
+    # 3c. Phase 5a-ii (body pass): now that the signature set is final, ask the LLM for
+    # bodies. Interface methods and anything explicitly left abstract never get one
+    # (matches how JavaBuilder renders them - see build_and_save/render_class).
+    pending_bodies: dict[str, list[JavaMethod]] = {}
+    for cls in ast_classes:
+        if cls.is_interface:
+            continue
+        for m in cls.methods:
+            if m.body is None and not m.is_abstract:
+                pending_bodies.setdefault(cls.name, []).append(m)
+
+    if pending_bodies:
+        total_pending = sum(len(v) for v in pending_bodies.values())
+        print(f"Requesting bodies for {total_pending} method(s) across {len(pending_bodies)} class(es)...")
+        try:
+            fills = provider.fill_signature_bodies(pending_bodies, ast_classes, domain.name, domain.description)
+        except Exception as e:
+            print(f"[WARNING] Failed to fetch method bodies via LLM: {e}")
+            fills = []
+
+        fill_map = {(f.class_name, f.method_name): f.body for f in fills}
+        for class_name, methods in pending_bodies.items():
+            for m in methods:
+                body = fill_map.get((class_name, m.name))
+                if body is None:
+                    body = default_body_for_return_type(m.return_type)
+                    print(f"[CONTENT_REPAIR] 5a-ii fallback stub used for {class_name}.{m.name}")
+                m.body = body
+
+    # 3d. Re-run the deterministic pass now that bodies exist, specifically for rule 4.8
+    # (protected-promotion for direct inherited-field access) - re-running the earlier
+    # rules too is harmless/idempotent, the signature set is already clean from 3b. Only
+    # print entries logged in THIS call, since 3b's were already printed above.
+    ast_classes = content_repair.repair(ast_classes)
+    for log in content_repair.action_log[_log_count_after_3b:]:
         print(f"[CONTENT_REPAIR] {log['step']} on {log['node']}: {log['detail']} -> {log['action']}")
 
     # 4.5b Content Repair: interface/abstract contract fulfillment

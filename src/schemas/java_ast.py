@@ -39,6 +39,29 @@ class DetailedEntity(BaseModel):
 class DetailsResponse(BaseModel):
     entities: List[DetailedEntity]
 
+# --- Phase 5a-i: Signature-only Schemas ---
+# Structurally excludes `body` (unlike JavaMethod/DetailedEntity above) so the LLM
+# cannot spend tokens writing implementation logic before ContentRepairPipeline has had
+# a chance to dedupe/rename/drop colliding signatures - see
+# src/validator/content_repair_pipeline.py's module docstring for why that ordering
+# matters (previously, repair ran AFTER bodies were written, so a dropped/renamed
+# method's already-generated body was pure wasted generation).
+
+class SignatureMethod(BaseModel):
+    modifier: str = "public"
+    return_type: Optional[JavaTypeRef] = None
+    name: str
+    parameters: List[JavaParameter] = []
+    is_abstract: bool = False
+
+class SignatureEntity(BaseModel):
+    name: str = Field(description="The name of the class exactly as provided")
+    fields: List[JavaField] = Field(description="Primitive or standard library fields (e.g., String name, int hp). Do NOT invent relationship fields like List<Weapon>, they are already handled.")
+    methods: List[SignatureMethod] = Field(description="Business logic method SIGNATURES only - name, return type, parameters. Do NOT write implementation bodies here, they are requested in a separate step.")
+
+class SignaturesResponse(BaseModel):
+    entities: List[SignatureEntity]
+
 class ContractFill(BaseModel):
     class_name: str = Field(description="Name of the class that needs this method implemented")
     method_name: str = Field(description="Exact method name being implemented, matching the required signature")
