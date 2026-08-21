@@ -232,9 +232,10 @@ class JavaBuilder:
             shutil.rmtree(output_dir)
         os.makedirs(output_dir, exist_ok=True)
         
-        # Dump AST to JSON for manual inspection
+        # Dump AST to JSON for manual inspection - Phase 4's output (AST Bootstrap),
+        # consumed by src/detail_pipeline.py to start Phase 5a-i.
         import json
-        with open(os.path.join("output", "phase_e_java_ast.json"), "w", encoding="utf-8") as f:
+        with open(os.path.join("output", "phase4_ast_bootstrap.json"), "w", encoding="utf-8") as f:
             json.dump([node.model_dump() for node in ast_nodes], f, indent=2)
             
         all_classes_map = {node.name: node for node in ast_nodes}

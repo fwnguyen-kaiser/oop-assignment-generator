@@ -234,8 +234,11 @@ def run_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", preset_path
     print("Saved to output/phase2_repaired_sketch.json")
     print("Saved to output/phase3_logical_plan.json")
     
-    # --- Phase E: Output Generation ---
-    print("\n--- Running Phase E: Output Generation ---")
+    # --- Phase 4: AST Bootstrap / Output Generation ---
+    # Was inconsistently lettered "Phase E" - renumbered to close the gap this created in
+    # the 1/1b/1c/2/3/[5a-i]/[5a-ii]/6 sequence once src/detail_pipeline.py's Phase 4
+    # (enrich_ast_with_details) was split into Phase 5a-i/5a-ii.
+    print("\n--- Running Phase 4: AST Bootstrap / Output Generation ---")
     from src.builders.mermaid_builder import MermaidBuilder
     from src.builders.java_builder import JavaBuilder
     

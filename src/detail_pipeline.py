@@ -12,8 +12,10 @@ def run_detail_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", pres
     with open(domain_path, "r", encoding="utf-8") as f:
         domain = DomainConfig(**yaml.safe_load(f))
         
-    # 2. Load the structural AST
-    ast_file = "output/phase_e_java_ast.json"
+    # 2. Load the structural AST (Phase 4's output - AST Bootstrap, built from the final
+    # LogicalPlan by JavaBuilder.build_and_save(), before this file existed under the
+    # inconsistent name "phase_e_java_ast.json")
+    ast_file = "output/phase4_ast_bootstrap.json"
     if not os.path.exists(ast_file):
         print(f"Error: {ast_file} not found. Run pipeline.py first.")
         return
@@ -26,7 +28,7 @@ def run_detail_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", pres
     print(f"Loaded {len(ast_classes)} classes from structural AST.")
     
     # 3. Call LLM to invent details
-    print("Calling LLM to generate internal attributes and methods (Phase 4)...")
+    print("Calling LLM to generate internal attributes and methods (Phase 5a-i)...")
     from dotenv import load_dotenv
     load_dotenv()
     
@@ -117,7 +119,9 @@ def run_detail_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", pres
     for log in content_repair.action_log[_log_count_after_3b:]:
         print(f"[CONTENT_REPAIR] {log['step']} on {log['node']}: {log['detail']} -> {log['action']}")
 
-    # 4.5b Content Repair: interface/abstract contract fulfillment
+    # 3e. Phase 5a-ii (contract fulfillment): interface/abstract contract fulfillment -
+    # same phase as 3b/3c/3d, a distinct sub-step within ContentRepairPipeline's remit,
+    # not a separate numbered phase (was mislabeled "4.5b" under the old Phase 4 scheme).
     missing = content_repair.find_missing_contract_methods(ast_classes)
     if missing:
         total_missing = sum(len(v) for v in missing.values())
@@ -140,13 +144,13 @@ def run_detail_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", pres
                 # as useless as a missing one.
                 if body is None or not body.strip():
                     body = default_body_for_return_type(m.return_type)
-                    print(f"[CONTENT_REPAIR] 4.4/4.5 fallback stub used for {class_name}.{m.name}")
+                    print(f"[CONTENT_REPAIR] 3e (Phase 5a-ii contract fulfillment) fallback stub used for {class_name}.{m.name}")
                 new_method = m.model_copy(deep=True)
                 new_method.body = body
                 new_method.is_abstract = False
                 cls.methods.append(new_method)
 
-    # 4.6 Phase 6: Compile Verification Gate (ultimate safeguard, not primary fix mechanism)
+    # 3f. Phase 6: Compile Verification Gate (ultimate safeguard, not primary fix mechanism)
     # Tier 1 (free, deterministic) reads the REAL javac error and auto-fixes known shapes.
     # Tier 2 (costly, capped to 1 attempt) is a last-resort LLM call for genuinely novel
     # errors that don't match any known pattern. Disclosed limitation: this is best-effort -
@@ -157,12 +161,13 @@ def run_detail_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", pres
     compile_gate = CompileVerificationGate(java_builder)
     ast_classes = compile_gate.verify_and_repair(ast_classes, domain, provider, max_tier1=3, max_tier2=1)
 
-    # 5. Save detailed AST
-    with open("output/phase4_detailed_ast.json", "w", encoding="utf-8") as f:
+    # 3g. Save detailed AST (post-Phase-6, so its filename reflects that, not the stale
+    # "phase4_detailed_ast.json" this was named before Phase 5a-i/5a-ii/6 existed)
+    with open("output/phase6_detailed_ast.json", "w", encoding="utf-8") as f:
         json.dump([node.model_dump() for node in ast_classes], f, indent=2)
-    print("Saved detailed AST to output/phase4_detailed_ast.json")
-    
-    # 6. Render the detailed Mermaid diagram
+    print("Saved detailed AST to output/phase6_detailed_ast.json")
+
+    # 3h. Render the detailed Mermaid diagram
     from src.builders.mermaid_builder import MermaidBuilder
     mermaid_builder = MermaidBuilder()
     detailed_mmd = mermaid_builder.build_detailed_diagram(ast_classes)
@@ -170,7 +175,7 @@ def run_detail_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", pres
         f.write(detailed_mmd)
     print("Saved detailed Mermaid diagram to output/class_diagram_detailed.mmd")
     
-    # 7. Render the final, full Java files & Skeletons
+    # 3i. Render the final, full Java files & Skeletons
     # Reuse the SAME JavaBuilder instance created for the compile gate above - it may have
     # learned new standard_types import mappings via Tier 1 that must carry over to this render.
     output_dir = "output/java_detailed"
@@ -221,7 +226,7 @@ def run_detail_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", pres
             
     print(f"Rendered {len(ast_classes)} detailed Java files and skeletons to output/")
     
-    # 8. Render Final Assignment Markdown
+    # 3j. Render Final Assignment Markdown
     from src.builders.markdown_builder import MarkdownBuilder
     with open(preset_path, "r", encoding="utf-8") as f:
         preset = BlueprintPreset(**yaml.safe_load(f))

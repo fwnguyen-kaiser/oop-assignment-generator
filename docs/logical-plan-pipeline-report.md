@@ -72,6 +72,14 @@ PASS 2 — DETAIL ENRICHMENT & RENDERING
   Phase 5  : Rendering            AST (full) → Java files, skeleton files, diagrams, assignment.md
 ```
 
+> **Cập nhật (sau session refactor Tier1/2/3 + phase-naming audit)**: numbering ở trên là snapshot tại thời điểm viết báo cáo, **không còn khớp code hiện tại**. Đã đổi thật trong code (không chỉ đổi tên gọi):
+> - `Phase E` → đổi số thành **Phase 4** (không còn dùng chữ), file output đổi từ `phase_e_java_ast.json` → `phase4_ast_bootstrap.json`.
+> - `Phase 4` (AST Enrichment) cũ → tách làm 2: **Phase 5a-i** (LLM sinh signature, không có body) và **Phase 5a-ii** (`ContentRepairPipeline` sửa signature trước, rồi mới xin LLM viết body — tránh phí generation cho method sẽ bị dedupe/rename) — lý do và bug thật tìm được khi tách xem thêm README của `oop-assignment-generator` phần Tier 1/2/3.
+> - Có thêm **Phase 6** (Compile Verification Gate — `javac` thật, Tier 1 deterministic + Tier 2 LLM last-resort) chưa từng xuất hiện trong bảng 6-phase gốc ở trên — được thêm sau thời điểm viết báo cáo này.
+> - `Phase 5` (Rendering) cũ vẫn còn, nhưng chạy SAU Phase 6, file output đổi `phase4_detailed_ast.json` → `phase6_detailed_ast.json` cho khớp đúng thứ tự thật.
+>
+> Numbering thật hiện tại: `1 → 1b/1c → 2 → 3 → 4 (AST Bootstrap) → 5a-i (signatures) → 5a-ii (content repair + body-fill + contract fulfillment) → 6 (compile gate) → rendering cuối (không đánh số Phase riêng, là step nội bộ 3g-3j trong detail_pipeline.py)`.
+
 ### 3.2 Schema qua từng Phase
 
 **SketchPlan (Phase 1 output / Phase 2 input-output)** — lỏng, không ép số lượng chính xác:
@@ -175,7 +183,7 @@ Quá trình triển khai đi qua nhiều vòng review độc lập ("Independent
 
 ### 4.6 Nhóm gap chưa đóng hoàn toàn (open items)
 - **`SemanticValidator`** (module kiểm tra `LogicalPlan` theo policy "depth phải bằng chính xác max_depth") hiện là dead code, chưa được wire vào pipeline chính — và nếu wire lại sẽ mâu thuẫn trực tiếp với `2.3` (chỉ trim khi vượt, không ép tăng khi thiếu). Cần chốt policy thống nhất (`max_depth` là ceiling hay target chính xác) trước khi kích hoạt lại.
-- **Liên kết Phase E ↔ Phase 4**: `run_detail_pipeline` đọc từ `output/phase_e_java_ast.json`, nhưng chưa xác nhận được `JavaBuilder.build_and_save()` có ghi ra đúng file này hay không — thiếu code `java_builder.py` để audit dứt điểm.
+- ~~**Liên kết Phase E ↔ Phase 4**: `run_detail_pipeline` đọc từ `output/phase_e_java_ast.json`, nhưng chưa xác nhận được `JavaBuilder.build_and_save()` có ghi ra đúng file này hay không — thiếu code `java_builder.py` để audit dứt điểm.~~ **[RESOLVED]** Đã confirm liên kết đúng (grep trực tiếp cả 2 file), và nhân tiện sửa luôn tên cho nhất quán: `Phase E` → `Phase 4`, file đổi thành `phase4_ast_bootstrap.json`, cả `java_builder.py` (nơi ghi) lẫn `detail_pipeline.py` (nơi đọc) đã đồng bộ.
 - **Phase 1b không re-verify count sau vòng repair thứ 2**: nếu repair lần 2 lại làm giảm entity (do 2.5/2.8 trigger), không có bước kiểm tra lại `min_classes` lần cuối trước khi đi tiếp sang Phase 3.
 
 ---
@@ -213,7 +221,7 @@ Một sự cố đáng ghi nhận trong quá trình: báo cáo "test pass hết"
 
 ### 6.2 Rủi ro còn tồn tại
 - Lớp lỗi semantic (quan hệ domain hợp lý nhưng không "đúng" theo trực giác — ví dụ độ mạnh-yếu của composition/association) vẫn ngoài khả năng phát hiện tự động của hệ thống — cố hữu với cách tiếp cận semantic-first, chỉ giảm thiểu được qua domain hint tốt hơn (gợi ý interface có tên cụ thể thay vì để code tự derive từ hình dạng đồ thị) và human review định kỳ, không loại bỏ hoàn toàn được.
-- 3 open item ở mục 4.6 cần đóng trước khi coi pipeline là production-ready: policy `max_depth` thống nhất, xác nhận liên kết file Phase E↔4, re-verify count sau Phase 1b vòng 2.
+- 3 open item ở mục 4.6 cần đóng trước khi coi pipeline là production-ready: policy `max_depth` thống nhất, ~~xác nhận liên kết file Phase E↔4~~ **[đã resolve]**, re-verify count sau Phase 1b vòng 2.
 
 ### 6.3 Định hướng tiếp theo
 - Đóng 3 open item còn treo.
