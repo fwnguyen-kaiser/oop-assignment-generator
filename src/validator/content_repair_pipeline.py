@@ -49,7 +49,18 @@ def method_signature(method: JavaMethod) -> tuple:
 
 class ContentRepairPipeline:
     """Phase 5a-ii — deterministic repair of LLM-invented fields/methods (Taxonomy A)
-    plus detection of unfulfilled interface/abstract-method contracts (Taxonomy B).
+    plus detection of unfulfilled interface/abstract-method contracts (also Taxonomy A -
+    both repair() and find_missing_contract_methods() are pure AST walks, no compiler
+    ever invoked; Taxonomy B is reserved exclusively for checks that genuinely require
+    the real compiler, e.g. resolving whether a referenced type exists at all - see
+    mini-grader's README/semantic_layer.py, the canonical definition this taxonomy is
+    shared with. This class runs entirely BEFORE compile_gate.py's Tier 1/Tier 2 (a
+    DIFFERENT axis - free-deterministic-fix vs costly-LLM-fix, triggered by an actual
+    javac failure) ever gets a chance to run, proactively, not reactively).
+
+    NOTE: an earlier version of this docstring mislabeled find_missing_contract_methods()
+    as "Taxonomy B" - it isn't; fixed here to keep the taxonomy consistent with its
+    mini-grader definition, not just locally self-consistent.
 
     repair() is called TWICE by src/detail_pipeline.py, deliberately: once on
     signature-only methods (all bodies None, right after generate_signatures() and
@@ -195,8 +206,9 @@ class ContentRepairPipeline:
         return ast_classes
 
     def find_missing_contract_methods(self, ast_classes: List[JavaClass]) -> Dict[str, List[JavaMethod]]:
-        """Taxonomy B detection: interface methods and abstract-declared methods that
-        no class in the inheritance chain has actually implemented (body is not None)."""
+        """Taxonomy A detection (pure AST walk, no compiler): interface methods and
+        abstract-declared methods that no class in the inheritance chain has actually
+        implemented (body is not None)."""
         class_map = {c.name: c for c in ast_classes}
         missing: Dict[str, List[JavaMethod]] = {}
 
