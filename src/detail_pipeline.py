@@ -112,7 +112,7 @@ def run_detail_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", pres
         total_missing = sum(len(v) for v in missing.values())
         print(f"Found {total_missing} unimplemented contract method(s) across {len(missing)} class(es). Requesting real implementations...")
         try:
-            fills = provider.fill_missing_contract_methods(missing, domain.name, domain.description)
+            fills = provider.fill_missing_contract_methods(missing, ast_classes, domain.name, domain.description)
         except Exception as e:
             print(f"[WARNING] Failed to fetch contract method implementations via LLM: {e}")
             fills = []

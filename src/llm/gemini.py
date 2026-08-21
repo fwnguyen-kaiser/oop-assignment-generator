@@ -377,15 +377,35 @@ If the domain is 'E-Commerce' and soft guidance asks for ~4 classes:
         return response.parsed.entities
 
     @tenacity.retry(wait=tenacity.wait_exponential(multiplier=2, min=5, max=65), stop=tenacity.stop_after_attempt(5))
-    def fill_missing_contract_methods(self, missing: dict, domain_name: str, domain_desc: str) -> list:
+    def fill_missing_contract_methods(self, missing: dict, ast_classes: list, domain_name: str, domain_desc: str) -> list:
+        """`ast_classes` is the FULL current class list (fields only are used below) - same
+        reason as fill_signature_bodies() above: a body that needs to construct another
+        class (e.g. `new Foo(...)`) must know that class's real field list, since
+        JavaBuilder auto-generates every constructor from ALL of a class's fields at
+        render time (there is no separate constructors field in the AST at all). Without
+        this, the exact same "invented a wrong-arity constructor call" failure mode found
+        and fixed in fill_signature_bodies() is equally possible here."""
         system_instruction = (
             "You are an expert Java Developer.\n"
             "You are filling in REQUIRED method implementations that are missing from an interface or abstract-class "
             "contract. Each method MUST get a short, real, domain-appropriate body — not a placeholder."
         )
 
+        classes_json = "\n".join(
+            f"--- Class: {c.name} ---\n" + c.model_dump_json(indent=2, exclude={"methods"}) for c in ast_classes
+        )
+
         lines = [
             f"--- DOMAIN CONTEXT ---\nTopic: {domain_name}\nDescription: {domain_desc}",
+            "\n--- FULL CURRENT CLASS STRUCTURE (all classes, fields only - for reference when your body "
+            "needs to construct or reference another class) ---",
+            classes_json,
+            "\n--- IMPORTANT: CONSTRUCTOR CONVENTION ---",
+            "Every class's constructor is auto-generated to take ALL of that class's fields listed above as "
+            "parameters, in the order shown (inherited fields first, then its own), and NOTHING else. There is "
+            "NEVER a no-argument constructor unless a class has zero fields. If your body needs to construct "
+            "another class (e.g. `new Foo(...)`), you MUST pass exactly that class's full field list as "
+            "arguments, in that order - never assume a no-arg or partial constructor exists.",
             "\n--- MISSING CONTRACT METHODS ---",
         ]
         for class_name, methods in missing.items():

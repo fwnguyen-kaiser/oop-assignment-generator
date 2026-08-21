@@ -203,7 +203,15 @@ class JavaBuilder:
             p_str = ", ".join(params)
             
             if java_class.is_interface or m.is_abstract:
-                lines.append(f"    {m.modifier} {ret} {m.name}({p_str});")
+                # An abstract method on a regular (non-interface) class MUST have the
+                # literal `abstract` keyword written, or javac rejects it as "missing
+                # method body, or declare abstract" - unlike an interface method, which
+                # is implicitly abstract with no keyword needed. This was previously
+                # unreachable: is_abstract was never actually set True on any method
+                # before src/detail_pipeline.py's Phase 5a-i/5a-ii split started
+                # threading it through from LLM signature generation.
+                abstract_kw = "" if java_class.is_interface else "abstract "
+                lines.append(f"    {m.modifier} {abstract_kw}{ret} {m.name}({p_str});")
             else:
                 lines.append(f"    {m.modifier} {ret} {m.name}({p_str}) {{")
                 if m.body:
