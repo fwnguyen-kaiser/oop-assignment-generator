@@ -151,6 +151,99 @@ def apply_interface_guarantee(repaired_sketch: SketchPlan, llm, repair_engine: S
     return repaired_sketch
 
 
+def max_extends_edges(sketch: SketchPlan) -> int:
+    """Longest class-inheritance chain, counted in `extends` EDGES (a lone class = 0).
+
+    Deliberately named after what it counts: rule 2.3 in repair_pipeline.py enforces
+    max_depth against the edge count, while knowledge_base/concepts.yaml describes depth
+    in NODES ("Depth 3: CheckingAccount extends BankAccount extends Account" = 2 edges).
+    Those two notions differ by one; this function matches the rule that actually governs
+    the output rather than inventing a third reading.
+    """
+    parent = {e.name: e.extends for e in sketch.entities if e.extends and not e.is_interface}
+    best = 0
+    for start in [e.name for e in sketch.entities if not e.is_interface]:
+        seen = set()
+        node, edges = start, 0
+        while node in parent and node not in seen:
+            seen.add(node)
+            node = parent[node]
+            edges += 1
+        best = max(best, edges)
+    return best
+
+
+def build_conformance_report(repaired_sketch: SketchPlan, preset: BlueprintPreset, skeleton_gate_ok) -> dict:
+    """Every preset requirement as an explicit, machine-readable satisfied/unsatisfied record.
+
+    Three requirement checks in this pipeline used to report failure by printing a WARNING to
+    stdout and carrying on: Phase 1b's min_classes, Phase 1c's required interface, and Phase
+    2.5's skeleton legality gate. That is the same defect shape an audit already found and
+    fixed at Phase 6 - a gate that knows it failed, whose only output goes somewhere no caller
+    reads. This turns the signal into a file, and run_all.py reads it and exits non-zero.
+
+    Nothing here changes the design; it only stops a spec violation from looking identical to
+    a clean run.
+    """
+    oop = preset.oop
+    entities = repaired_sketch.entities
+    rel_types = {r.type for r in repaired_sketch.relationships}
+
+    def required(toggle):
+        return bool(toggle and toggle.enabled)
+
+    checks = []
+
+    def add(name, req, delivered, detail):
+        checks.append({
+            "requirement": name,
+            "required": req,
+            "delivered": delivered,
+            "satisfied": (delivered if req else True),
+            "detail": detail,
+        })
+
+    count = len(entities)
+    add("min_classes", True, count >= preset.structure.classes.min,
+        f"{count} entities, min {preset.structure.classes.min}")
+    add("max_classes", True, count <= preset.structure.classes.max,
+        f"{count} entities, max {preset.structure.classes.max}")
+
+    inh_required = required(oop.inheritance if oop else None)
+    edges = max_extends_edges(repaired_sketch)
+    add("inheritance", inh_required, any(e.extends for e in entities if not e.is_interface),
+        f"longest chain = {edges} extends edge(s)")
+    if inh_required and oop and oop.inheritance:
+        add("max_extends_edges", True, edges <= oop.inheritance.max_depth,
+            f"{edges} <= max_depth {oop.inheritance.max_depth}")
+
+    add("abstraction", required(oop.abstraction if oop else None),
+        any(e.is_abstract for e in entities), "at least one abstract class")
+    add("interface", required(oop.interface if oop else None),
+        any(e.is_interface for e in entities), "at least one interface")
+    add("composition", required(oop.composition if oop else None),
+        "composition" in rel_types, "at least one composition edge")
+    add("aggregation", required(oop.aggregation if oop else None),
+        "aggregation" in rel_types, "at least one aggregation edge")
+
+    # None = never checked (no javac on PATH), deliberately not counted as a failure -
+    # same tri-state reasoning as CompileVerificationGate.success.
+    checks.append({
+        "requirement": "phase_2_5_skeleton_legality",
+        "required": True,
+        "delivered": skeleton_gate_ok,
+        "satisfied": skeleton_gate_ok is not False,
+        "detail": "structural graph compiles as an empty skeleton (real javac)",
+    })
+
+    return {
+        "entity_count": count,
+        "checks": checks,
+        "unsatisfied": [c["requirement"] for c in checks if not c["satisfied"]],
+        "all_satisfied": all(c["satisfied"] for c in checks),
+    }
+
+
 def run_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", preset_path: str = "configs/presets/intermediate.yaml"):
     print(f"--- Starting V2 Pipeline Phase 1 & 2 for Domain: {domain_path} ---")
     
@@ -242,15 +335,31 @@ def run_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", preset_path
     print("\n--- Running Phase 2.5: Skeleton Compile Gate ---")
     from src.validator.skeleton_gate import SkeletonGate
     gate_ok, gate_stderr = SkeletonGate().check(repaired_sketch)
-    if gate_ok:
+    if gate_ok is True:
         print("[PHASE 2.5] Skeleton compiles cleanly - structural repair is javac-legal.")
+    elif gate_ok is None:
+        print(f"[PHASE 2.5] {gate_stderr} Not the same as passing - recorded as unchecked.")
     else:
-        # No retry loop yet (that's Phase 2.fb, deferred until the action_log-lossiness
-        # metric shows it's actually needed - see docs). For now this just makes a
-        # structural-legality failure visible immediately after Phase 2, instead of
-        # only surfacing once Phase 6 fails after Phase 5a-i/ii already spent LLM calls
-        # writing fields/methods for a graph that could never have compiled.
+        # No retry loop: that would have been Phase 2.fb, which measurement showed was not
+        # worth building (see README). The verdict is no longer stdout-only either way - it
+        # goes into output/conformance_report.json below, which run_all.py acts on.
         print(f"[PHASE 2.5] WARNING: skeleton failed to compile - structural repair produced an illegal graph:\n{gate_stderr}")
+
+    # Phase 2.5b: write every preset requirement out as a machine-readable verdict. The
+    # three WARNING-only failure paths above (Phase 1b min_classes, Phase 1c interface,
+    # Phase 2.5 legality) now land somewhere a caller can act on - run_all.py reads this
+    # file and exits non-zero when a requirement went unmet, so a run that violated the
+    # instructor's preset no longer looks identical to a clean one.
+    conformance = build_conformance_report(repaired_sketch, preset, gate_ok)
+    for check in conformance["checks"]:
+        state = "ok" if check["satisfied"] else "UNSATISFIED"
+        req = "required" if check["required"] else "optional"
+        print(f"[CONFORMANCE] {state}: {check['requirement']} ({req}) - {check['detail']}")
+    if not conformance["all_satisfied"]:
+        print(f"[CONFORMANCE] preset NOT fully satisfied: {conformance['unsatisfied']}")
+    with open("output/conformance_report.json", "w", encoding="utf-8") as f:
+        json.dump(conformance, f, indent=2)
+    print("Saved to output/conformance_report.json")
 
     print("\n--- Running Phase 3: Logical Plan Compilation ---")
     try:

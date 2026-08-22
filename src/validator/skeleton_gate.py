@@ -1,7 +1,7 @@
 import os
 import shutil
 import tempfile
-from typing import Tuple
+from typing import Optional, Tuple
 from src.schemas.logical_plan import SketchPlan
 from src.pipeline import compile_logical_plan
 from src.builders.java_builder import JavaBuilder
@@ -27,9 +27,16 @@ class SkeletonGate:
     def __init__(self):
         self.java_builder = JavaBuilder()
 
-    def check(self, repaired_sketch: SketchPlan) -> Tuple[bool, str]:
+    def check(self, repaired_sketch: SketchPlan) -> Tuple[Optional[bool], str]:
+        """True = compiles, False = confirmed does NOT compile, None = never checked.
+
+        None used to be reported as True ("javac not found on PATH" returned a pass), which
+        is the same conflation peer review already had fixed at Phase 6: "we did not look" is
+        not the claim "we looked and it is fine". A caller that cannot tell them apart cannot
+        report honestly, and this gate's verdict now feeds output/conformance_report.json.
+        """
         if not is_javac_available():
-            return True, "javac not found on PATH - skeleton gate skipped."
+            return None, "javac not found on PATH - skeleton gate skipped."
 
         plan = compile_logical_plan(repaired_sketch, decisions=["skeleton gate probe - not used for output"])
         ast_classes = self.java_builder.build_ast(plan)

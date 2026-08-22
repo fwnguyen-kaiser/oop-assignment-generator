@@ -5,7 +5,7 @@
 <p>
   <img alt="Python" src="https://img.shields.io/badge/python-3.14-3776AB?style=flat-square&logo=python&logoColor=white">
   <img alt="Java" src="https://img.shields.io/badge/target-Java%2021-ED8B00?style=flat-square&logo=openjdk&logoColor=white">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-130%20passing-2EA44F?style=flat-square&logo=pytest&logoColor=white">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-151%20passing-2EA44F?style=flat-square&logo=pytest&logoColor=white">
   <img alt="LLM" src="https://img.shields.io/badge/LLM-Gemini-8E75B2?style=flat-square&logo=googlegemini&logoColor=white">
   <img alt="Architecture" src="https://img.shields.io/badge/architecture-2--pass%20%7C%207--phase-4C6EF5?style=flat-square">
   <img alt="Verification" src="https://img.shields.io/badge/verification-real%20javac-F59E0B?style=flat-square">
@@ -14,9 +14,9 @@
 
 > Published for portfolio and academic review. Publicly viewable, not open for reuse — see [`LICENSE`](LICENSE).
 
-Generates a complete Java OOP programming assignment (class diagram, full reference solution, student skeleton, and assignment brief) from two inputs: a **domain** (topic + entity/relationship vocabulary) and a **blueprint preset** (difficulty — class count range, inheritance depth, which OOP features must appear).
+Generates a complete Java OOP programming assignment (class diagram, full reference solution, student skeleton, and assignment brief) from two inputs: a **domain** (topic + entity/relationship vocabulary) and a **blueprint preset** (difficulty — class count range, inheritance depth, which OOP features the design should include; note these are enforced unevenly — see row 11 of the epistemic table and limitation #10).
 
-This README explains the reasoning behind the architecture, states plainly what has been verified vs. what hasn't, and discloses every known limitation. Full mechanism-level detail (every rule, its exact trigger condition, and file:line) is in [`docs/pipeline-audit-v4-technical-report.md`](docs/pipeline-audit-v4-technical-report.md).
+This README explains the reasoning behind the architecture, states plainly what has been verified vs. what hasn't — see [**Epistemic Status**](#-epistemic-status-proven-completeness-vs-evidence-only), which grades every area L1–L5 and marks exactly one as a completeness proof — and discloses every known limitation. Full mechanism-level detail (every rule, its exact trigger condition, and file:line) is in [`docs/pipeline-audit-v4-technical-report.md`](docs/pipeline-audit-v4-technical-report.md).
 
 ---
 
@@ -49,7 +49,7 @@ flowchart TD
     subgraph PASS1["PASS 1 — Structure (Semantic-First)"]
         direction TB
         P1["<b>Phase 1</b><br/>LLM Sketch Generation"]
-        P2["<b>Phase 2</b><br/>Deterministic Structural Repair<br/><i>~20 rules — cycles, depth, interfaces,<br/>kind-aware extends/implements legality...</i>"]
+        P2["<b>Phase 2</b><br/>Deterministic Structural Repair<br/><i>29 rules — cycles, depth, interfaces,<br/>kind-aware extends/implements legality...</i>"]
         P25["<b>Phase 2.5</b><br/>Skeleton Compile Gate<br/><i>real javac, no fields/methods yet</i>"]
         P1b["LLM: propose missing entities<br/><i>max 3 attempts</i>"]
         P1c["LLM: propose missing interface<br/><i>max 2 attempts — never forces<br/>an existing entity</i>"]
@@ -97,15 +97,69 @@ Phase 6 is the newest and most important safety net: instead of hand-writing an 
 
 ---
 
-## ✅ What Is Actually Proven (Not Claimed)
+## ✅ Epistemic Status: Proven Completeness vs. Evidence Only
 
-Every claim below was verified this session, not assumed:
+Every claim in this repo sits on one of five levels of backing. **The level matters more than the claim** — it is the answer to *how do you know*, not *does it work*. Nothing below is labeled higher than what was actually done.
 
-- **130 automated tests pass** (`pytest tests/ -q`), covering all 7 phases, including reproductions of every real bug found (not just happy-path cases).
-- **Live end-to-end runs across 5 domains** (banking, e-commerce, library, RPG, animal kingdom) and 3 difficulty presets, each verified by compiling the generated output with a real JDK (`javac ... ` → exit code 0), not just "it ran without a Python exception."
-- A curated real run is committed at [`examples/sample-run-ecommerce/`](examples/sample-run-ecommerce/) — full solution, skeleton, diagrams, and assignment brief, reproducible with `python run_all.py configs/domains/e_commerce.yaml configs/presets/advanced.yaml` given a `GEMINI_API_KEY`.
-- Multiple real, previously-shipped compile-breaking bugs were found by actually running `javac` against generated output (not by inspection) — duplicate methods, unfulfilled interface contracts, invalid overrides, missing imports, private-field access across inheritance — each with a before/after `javac` exit code as evidence. Details and root causes: [`docs/pipeline-audit-v4-technical-report.md`](docs/pipeline-audit-v4-technical-report.md).
-- **Phase 2's extends/implements legality is proven, not spot-checked**: every (class/abstract/interface) × (class/abstract/interface) combination for both `extends` and `implements` — 18 cells total — was rendered and compiled with a real JDK to derive the LEGAL/ILLEGAL label (not hand-written), then locked as a permanent regression test (`tests/test_skeleton_gate.py`). An independent code-review pass plus 380 further adversarial fuzz trials (2 random seeds, entity graphs including interfaces) round-tripped through real `javac` found and closed 5 more compile-breaking gaps the initial fix missed, including a bug the fix itself introduced. Two recurring root-cause classes emerged from that work, both with a proven fix pattern: (1) a validity check running *before* a later rule can still mutate the state it's supposed to guard — closed by consolidating scattered mid-pipeline checks into one order-independent sweep, run once after every mutating rule is done (`repair_pipeline.py` rules `2.13`-`2.16`); (2) a fixed pattern/regex safety net whose vocabulary doesn't cover the real compiler's full message space for that error category — closed by cross-checking against the actual finite set of `javac` message shapes rather than reacting to whichever one a fuzzer happens to surface first.
+| Level | Backing | What it licenses |
+|---|---|---|
+| **L1 — oracle exhaustion** | Every point of a *bounded* space enumerated, each label decided by a real oracle (`javac`), locked as a regression test | A genuine **completeness** claim. "Why this rule?" → an exit code |
+| **L2 — spec derivation** | Rule derived from the JLS or a type constraint, not from the bug that happened to surface it | Correctness of that rule. Says nothing about the rule *set* being closed |
+| **L3 — measurement, threshold pre-registered** | Live trials with the decision threshold fixed *before* running anything | A calibrated decision, valid **only inside the measured envelope** |
+| **L4 — oracle sampling** | Fuzz / unit trials against real inputs | "We found bugs and closed them." **Not** "the rule set is closed" |
+| **L5 — read-through** | Manual reasoning, no oracle available in this environment | Nothing verifiable. Labeled as such, never folded into the levels above |
+
+The distinction that matters: **L1 answers "why exactly these N rules and not N+1". L4 cannot.** Most of this system is L4. That is stated here rather than blurred, because a rule set with no closure argument is one bug report away from becoming an ad-hoc patch pile, and knowing which areas are in that state is the whole point of the table.
+
+### Area-by-area
+
+| # | Area | Level | Completeness |
+|---|---|---|---|
+| 1 | `extends`/`implements` kind legality — 18 cells, (class\|abstract\|interface)² × 2 verbs | **L1** | ✅ **Proven.** Bounded space fully enumerated; every label derived by real `javac`, not hand-written; locked in `tests/test_skeleton_gate.py` (19 tests, skipped if no `javac`) |
+| 2 | Final solution compiles | **L1** | ✅ **Proven per run** by Phase 6 + fail-closed `raise`. This is *verification of one output*, not completeness of the repair rules that produced it |
+| 3 | Domain hint envelope (`MAX_ENTITY_HINTS = 8`) | **L3** | ✅ **Proven inside the measured envelope only** (ratio ≤ 2.0, 2 × 30 live trials), and the validator refuses anything outside it instead of extrapolating. The model case of honest scoping in this repo |
+| 4 | Java identifier safety on all generated names | **L2** | 🟡 Complete over "is a legal Java identifier"; reserved keywords deliberately excluded (delegated to rule `4.6`) |
+| 5 | Inheritance depth (`2.3`), max class count (`2.5`) | **L2 + L4** | 🟡 Hard-enforced deterministically and regression-tested — but no bounded-space argument, and `2.5` is never exercised by the fuzz tests (they run one permissive preset, `max_classes=10`) |
+| 6 | Inheritance acyclicity + kind-consistency under fuzz | **L4** | ❌ Not proven. The 3 committed `hypothesis` tests assert **pure-Python** invariants and never invoke `javac`; they hold on sampled inputs only |
+| 7 | Structural repair rule set as a whole — **29 rule IDs**, `2.0` → `2.16` | **L4** | ❌ Not proven. 35 unit tests + 3 property tests. No completeness claim exists for cycles / depth / count / kind-consistency / has-a-on-interface / dedupe as a *set* |
+| 8 | Content repair rule set — 7 rule IDs, `4.0a` → `4.8` | **L4** | ❌ Not proven. 21 unit tests including 5 live-found-bug regressions. No bounded space claimed |
+| 9 | Tier-1 compiler-error category vocabulary — **5 pattern sets** (`TIER1_KINDS`) | **L4** | ❌ Completeness not proven and **not provable** - `javac`'s message space is not ours to bound. What *is* finite now is **observation**: any error block matching none of the 5 sets is recorded as a first-class artifact (`CompileVerificationGate.novel_error_shapes`) and logged as `NOVEL javac shape`, so "no novel shape was seen across the declared matrix" is falsifiable instead of assumed |
+| 10 | Student skeleton compiles | **L1** | ✅ **Proven per run.** The skeleton is now held to the same oracle as the solution (`compile_sources`), fail-closed: a confirmed failure deletes the skeleton output and raises rather than shipping it. Previously not checked at all - the solution was verified and the artifact the student actually receives was not |
+| 11 | Preset OOP feature presence (`interface`, `abstraction`, `composition`) | **L2** | 🟡 **Detection complete, repair not attempted.** Still no guarantee loop for `abstraction`/`composition`, and `interface` retries twice then gives up - but no longer silent: all 8 requirements are written to `output/conformance_report.json` with an explicit verdict, and `run_all.py` reads it and **exits non-zero**. Complete over the preset schema, which is itself a bounded list |
+| 12 | Mermaid / Markdown rendering | **L5** | ❌ Not proven. No oracle for Mermaid exists in this environment; every branch was read against the `classDiagram` grammar and no bug found. A careful read-through, not a proof |
+| 13 | Behavioral correctness of method bodies | — | ❌ Not proven, deliberately. Human-owned by design — but the loop has no seam yet, see limitation #13 |
+| 14 | Cost / latency at scale (7–8 LLM calls per run) | — | ❌ Not measured |
+| 15 | Declared input space — 5 domains × 3 presets = 15 combinations | **L2** | ✅ **Closed by declaration** (`src/supported.py`) and machine-checked against disk so it cannot drift. This is the move that makes any preset-boundary claim finite at all; inputs outside it still run, and `run_all.py` states plainly that no verified claim covers them |
+
+### What completeness is even *available* here
+
+L1 needs a **bounded** space to exhaust. That is not a standard to aspire to — it is a precondition, and it is either present or absent for a given area. In this system exactly **three** bounded spaces exist:
+
+1. **Kind × verb legality** — `{class, abstract, interface}² × {extends, implements}` = 18 cells. Finite, enumerated, done (row 1).
+2. **The declared input space** — 5 domains × 3 presets = 15 combinations, closed by declaration in `src/supported.py` and machine-checked against disk (row 15).
+3. **The preset requirement list** — a fixed schema of 8 checks, so *detecting* a violation is complete even though *repairing* one is not (row 11).
+
+Everything else in this system is unbounded **by construction**: `javac`'s message space (not ours to define), the space of all sketch graphs (infinite), the space of all English behavioural specifications (infinite). For those areas L1 is **unavailable**, not merely unachieved — and no amount of additional fuzzing changes that, because sampling an infinite space is still L4 at trial 380 and at trial 380,000.
+
+So the honest response to an unbounded area is not more effort in the same direction. It is three moves, all finite:
+
+- **Declare the supported subset** so the claims that remain are scoped to something enumerable (row 15).
+- **Make observation finite and falsifiable** — you cannot prove `javac`'s message space is covered, but you *can* count every message that matched nothing and surface it, which turns "we assume it is covered" into "no counterexample has been seen yet, and here is the counter that would prove otherwise" (row 9).
+- **Label the level and stop.** L4 correctly labeled is not a failure; L4 presented as L1 is.
+
+**A system with one completeness proof and thirteen honestly-labeled areas is finished. A system claiming fourteen is not.** `javac` itself has no completeness proof; neither does any compiler in production.
+
+### The specific L1 and L3 results, in full
+
+- **151 automated tests pass** (`pytest tests/ -q`), covering all 7 phases, including a reproduction of every real bug found — not just happy paths.
+- **Live end-to-end runs across 5 domains** (banking, e-commerce, library, RPG, animal kingdom) and 3 presets, each verified by compiling the output with a real JDK (`javac` → exit 0), not "it ran without a Python exception."
+- A curated real run is committed at [`examples/sample-run-ecommerce/`](examples/sample-run-ecommerce/), reproducible with `python run_all.py configs/domains/e_commerce.yaml configs/presets/advanced.yaml` given a `GEMINI_API_KEY`.
+- **The 18-cell legality matrix (row 1) is the only completeness proof in this repo.** Every cell rendered and compiled with a real JDK to *derive* the LEGAL/ILLEGAL label, then locked as a permanent regression test.
+- Multiple real, previously-shipped compile-breaking bugs were found by actually running `javac`, not by inspection — duplicate methods, unfulfilled interface contracts, invalid overrides, missing imports, private-field access across inheritance — each with a before/after exit code as evidence. See [`docs/pipeline-audit-v4-technical-report.md`](docs/pipeline-audit-v4-technical-report.md).
+- An independent code-review pass plus **380 adversarial fuzz trials** (2 seeds, entity graphs including interfaces) round-tripped through real `javac` found and closed 5 further compile-breaking gaps, including one the initial fix itself introduced. **This was a development-time measurement, not a committed regression test** — the trials are not reproducible from this repo; what is committed are the javac-free property tests in row 6. Labeled rather than left to imply standing coverage.
+- **Two recurring root-cause classes** emerged from that work, each with a proven fix pattern — these are the framework-level results, worth more than any individual rule:
+  1. *A validity check that runs **before** a later rule can still mutate the state it was supposed to guard.* A claim about the pipeline's temporal ontology, not about one bug. Closed by consolidating scattered mid-pipeline checks into **one order-independent sweep**, run once after every mutating rule is done (`repair_pipeline.py` rules `2.13`–`2.16`).
+  2. *A fixed pattern/regex safety net whose vocabulary doesn't cover the real compiler's full message space for that error category.* A claim about vocabulary completeness against an oracle-defined finite space. Closed by cross-checking against the **actual set of `javac` message shapes** rather than reacting to whichever one a fuzzer surfaced first.
 
 ---
 
@@ -120,6 +174,13 @@ These were raised and confirmed explicitly during development, not discovered la
 5. **Coverage is not exhaustive by choice.** 5 domains × 3 presets = 15 possible combinations exist; roughly 8 were live-verified. Domains are open-ended (arbitrary new topics can always be added), so 100% coverage was explicitly decided against in favor of stopping once the marginal bug-discovery rate dropped — a disclosed trade-off, not a gap that was missed.
 6. **The detailed (AST-level) class diagram still cannot distinguish composition from aggregation** — only the sketch-level diagram and the assignment brief were fixed to make that distinction, because they're the only two renderers still connected to the one data structure (`LogicalPlan`) where the distinction survives past the structural-bootstrap phase.
 7. **`mermaid_builder.py`/`markdown_builder.py` (diagram/assignment rendering) were reviewed but not oracle-verified.** Every code branch was manually checked against Mermaid's `classDiagram` grammar and no bug was found - but unlike every other claim in this README, there is no real compiler for Mermaid/Markdown available in this environment to confirm it the way `javac` confirms Java output, so this is a careful read-through, not a proof. Labeled explicitly rather than folded into the oracle-verified claims above.
+
+8. **The Tier-1 error-category set has no closure mechanism, and cannot have one — but it is no longer silent.** `javac`'s message space is not ours to bound, so no completeness proof over the 5 categories is available at any effort level. What was actually wrong before was different and fixable: `parse_errors` already classified an unmatched block as `{"kind": "unknown"}`, so the parser *knew* it had hit a shape outside its vocabulary — and `verify_and_repair` used that only as a **routing decision** (escalate the class to Tier 2), throwing the epistemic fact away. The single trace it left was Tier 2 firing slightly more often than usual, and Tier 2 is designed to be rare, so that is exactly where such a signal goes to die unnoticed. **Now**: every unmatched shape is recorded on `CompileVerificationGate.novel_error_shapes` (deduped by `novel_shape_signature`, which normalises line numbers) and logged as `NOVEL javac shape - ... the Tier-1 vocabulary may be incomplete`. That converts an unprovable completeness question into a countable, falsifiable one. **Still open**: nothing sweeps the declared 15-combination matrix to establish a baseline count, and category #6 is still added by a human reading the log — the detector makes that addition evidence-driven rather than bug-driven, which is the most this area admits.
+9. **Closed: the student skeleton is now compile-gated.** Phase 6 verifies the *solution* AST; the skeleton is derived from it afterwards by body-stubbing, and until this was closed the artifact the student actually receives had no oracle behind it at all — the assumption being that stubbing can only ever make code *more* compilable. It now goes through `compile_sources()` (the same real `javac`, the same `True`/`False`/`None` tri-state), and a confirmed failure deletes the skeleton output and raises instead of shipping it. **Residual caveat**: this verifies each run's output, it does not prove the stubbing rules are correct in general — row 10 is L1-per-run, exactly like row 2, not a completeness proof of the stubbing logic.
+10. **Preset OOP features are still enforced unevenly — but a violation is now detected, recorded, and acted on.** `max_classes` and `max_depth` are hard-enforced deterministically (rules `2.5`, `2.3`). `min_classes` and a required `interface` get retry loops that give up after 3 and 2 attempts. `abstraction` and `composition` have no guarantee loop at all — **that has not changed, and repair is not attempted**. What changed is the reporting: all 8 requirements now go to `output/conformance_report.json` with an explicit `satisfied` verdict, `[CONFORMANCE]` lines are printed per requirement, and `run_all.py` reads the file and **exits non-zero** when the preset was not met — so a run that violated the instructor's spec no longer exits looking identical to a clean one. Phase 2.5's skeleton legality gate feeds the same report and was also fixed to stop returning `True` when `javac` is simply absent (it returns `None` now — the same "we did not look is not a pass" distinction peer review had already forced at Phase 6, still present here until now). This was the same stdout-only-signal defect shape in three places; all three now terminate in a file a caller reads.
+11. **"Tier" carries three unrelated meanings across this repo and its sibling.** In `mini-grader`, Tier 1/2/3 is *epistemic confidence about what student code is* (raw AST → JLS-elaborated → reflection ground truth). In `compile_gate.py`, Tier 1/2 is *cost and reliability of a repair mechanism* (free deterministic → capped LLM). The L1–L5 ladder above is *confidence that a rule is correct*. Three orthogonal axes, one word — which makes "why tier X?" unanswerable without first asking "tier in which sense?". Renaming `compile_gate`'s tiers to cost-based names, reserving "Tier" for the epistemic axis, is pending.
+12. **Deliverable scope is narrower than "a usable assignment".** The package is diagram + reference solution + skeleton + brief. There is **no entry point** (no `main`, no driver, no runnable scenario or expected output for a student to check against) and **no test suite or machine-readable grading contract**, so nothing downstream — including the sibling `mini-grader` — can consume the result automatically. The grading contract is a deliberate omission (see #13); the missing driver is simply not built yet.
+13. **Human-in-the-loop is the intended mechanism for behavioral specification, but has no seam in the code.** Per-method behavior — what `calculateDiscount(double percentage)` should actually compute, given the brief currently states only its signature — is deliberately left to the instructor rather than trusted to an unreviewed LLM body. That choice is consistent with limitation #2 and is the right one. What does not yet exist is anywhere for that instructor to stand: `output/` is `rmtree`'d on every run (`detail_pipeline.py`, step 3i) so edits to `assignment.md` do not survive a re-run; no marker distinguishes the heavy behavioral methods from auto-generated accessors, so the instructor must diff `java_skeleton/` against `java_detailed/` by hand to find their own work; `DomainConfig` — explicitly framed as the author-controlled input — has no slot for behavioral intent; and Phase 5a-ii commits LLM-written bodies *before* any human sees them, with no path to re-run the compile gate over a human edit afterwards. The seam that would close this reuses machinery that already exists: `method_signature()` and the `(class_name, method_name, tuple(param_types))` fill-map key are already the right identity for a per-signature override file that Phase 5a-ii consults before calling the LLM, emits drafts into, and — critically — still routes through Phase 6.
 
 ---
 
@@ -143,7 +204,7 @@ An external review of an earlier version of this README raised 5 points. Each wa
 
 1. **Confirmed, fixed: no rollback when Phase 6 (compile verification) fails.** `verify_and_repair()` returned only the AST, never a pass/fail signal — every downstream file (both diagrams, the final `.java` files, the student skeleton, `assignment.md`) got written unconditionally, even on a run where the gate had already logged "Compile verification FAILED... shipping best-effort output" to its own internal report and nowhere else. A generated assignment that doesn't compile is the worst possible outcome for a student. **Fix**: the gate now exposes `self.success` (`True`/`False`/`None` — `None` means never actually checked, e.g. no `javac` on `PATH`, deliberately distinct from a confirmed pass), and the pipeline now raises immediately on a confirmed `False` rather than proceeding — refusing to ship, not degrading silently.
 2. **Confirmed real, but the specific example given didn't apply: Mermaid syntax fragility.** The review's example was `List<String>`-style generics colliding with Mermaid's HTML-tag parsing — checked live, `mermaid_builder.py` already uses the safe `List~T~` tilde syntax everywhere, not raw angle brackets, so that specific failure mode doesn't exist here. Digging into *why* it couldn't happen surfaced the real, related gap: `JavaField`/`JavaMethod`/`JavaParameter.name` (and the actual Phase 5a-i LLM response type, `SignatureMethod.name`) had **zero** identifier-safety validation, unlike `SketchEntity.name` (PascalCase-validated since Phase 1). **Fix**: same Java-identifier check added to all of them - deliberately not rejecting reserved keywords, since renaming those is `content_repair_pipeline.py`'s `4.6` rule's job, not this validator's.
-3. **Fair point, no code was wrong: only 5 domains' worth of live evidence backs the `measure_lossiness.py`-driven prompt fix** (see "Measured Before Building" above) - extrapolating to an arbitrary future domain (e.g. many more `entity_hints` against a much smaller `max_classes`) is genuinely untested. Rather than trying to prove the fix generalizes to an unbounded ratio (which would need spending real API calls against domains that don't exist yet), domain YAML was reframed for what it actually is here - an author-controlled asset, not adversarial input. **Fix**: `DomainConfig` now validates `entity_hints` stays within the actual measured envelope (ratio ≤ 2.0, i.e. `entity_hints` count ≤ 8 against the smallest shipped preset's `max_classes`=4) and raises a clear, actionable error if a future domain would exceed it - all 5 shipped domains already fit.
+3. **Fair point, no code was wrong: only 5 domains' worth of live evidence backs the `measure_lossiness.py`-driven prompt fix** (see the "Measured Before Building: Phase 2.fb" section below) - extrapolating to an arbitrary future domain (e.g. many more `entity_hints` against a much smaller `max_classes`) is genuinely untested. Rather than trying to prove the fix generalizes to an unbounded ratio (which would need spending real API calls against domains that don't exist yet), domain YAML was reframed for what it actually is here - an author-controlled asset, not adversarial input. **Fix**: `DomainConfig` now validates `entity_hints` stays within the actual measured envelope (ratio ≤ 2.0, i.e. `entity_hints` count ≤ 8 against the smallest shipped preset's `max_classes`=4) and raises a clear, actionable error if a future domain would exceed it - all 5 shipped domains already fit.
 4. **Misread the code: claimed the detailed AST diagram and the sketch diagram read from two different "sources of truth"** (implying the pipeline isn't really using one consistent intermediate representation). Checked directly: `SemanticEntity` (the `LogicalPlan` IR) keeps `composes_with`/`aggregates_with` as two always-separate fields - nothing is lost there. `build_class_diagram(final_plan)` reads that IR directly (full fidelity); `build_detailed_diagram(ast_classes)` reads the *Java-compiled-down* representation, where the distinction is gone because **Java itself has no compile-time way to express it** (composition vs. aggregation is a UML-level distinction, not a Java-language one - the same way `javac` itself discards local variable names by default). One IR, one deliberate lossy compilation step, two renderers correctly reading from whichever stage existed when they run - not two sources of truth.
 5. **Not a new finding: "semantic-first" doesn't mean semantic-*verified*.** The review treated "the system can't check whether `Customer extends ShoppingCart` makes domain sense" as a contradiction of the architecture's name. "Semantic-first" describes *division of labor and order of operations* (the LLM designs freely before any mechanical check runs) - it was never a claim that semantic correctness gets verified, and the README already disclosed this boundary explicitly with a reproduced example (the `Order`-emptied-out case above) before this review happened.
 
@@ -167,26 +228,31 @@ pip install -r requirements.txt
 python run_all.py configs/domains/<domain>.yaml configs/presets/<preset>.yaml
 ```
 
-Outputs land in `output/` (gitignored, regenerated every run — see `examples/` for a fixed reference run).
+Outputs land in `output/` (gitignored, regenerated every run — see `examples/` for a fixed reference run), including `conformance_report.json`, the machine-readable verdict on every preset requirement.
+
+`run_all.py` **exits non-zero** when the generated assignment does not satisfy the preset, and refuses to write the final package at all if either compile gate (solution or skeleton) confirms a failure. A clean exit means: it compiled, the skeleton compiled, and every preset requirement was met.
 
 ```bash
-pytest tests/ -q   # 130 tests
+pytest tests/ -q   # 151 tests
 ```
 
 ## 📁 Repo Layout
 
 ```
 src/pipeline.py                    Phase 1-3 orchestration, incl. Phase 2.5 skeleton gate
-src/validator/repair_pipeline.py   Phase 2 - deterministic structural repair (~20 rules,
+src/validator/repair_pipeline.py   Phase 2 - deterministic structural repair (29 rules,
                                     kind-aware inheritance schema, whitelist-by-construction)
 src/validator/skeleton_gate.py     Phase 2.5 - real-javac structural legality gate
 src/validator/content_repair_pipeline.py  Phase 5a-ii - deterministic content repair + contract fulfillment
-src/validator/compile_gate.py      Phase 6 - real-javac compile verification gate
-src/detail_pipeline.py             Phase 5a-7 orchestration
+src/validator/compile_gate.py      Phase 6 - real-javac compile verification gate,
+                                    plus compile_sources() (skeleton gate) and the
+                                    novel-error-shape detector
+src/detail_pipeline.py             Phase 5a-7 orchestration, incl. the skeleton compile gate
+src/supported.py                   The declared, finite input matrix (5 domains x 3 presets)
 src/builders/                      Phase 4/7 - AST, Mermaid diagram, and assignment.md rendering
 src/llm/gemini.py                  All LLM-facing prompts and structured-output contracts
 configs/domains/, configs/presets/ Domain vocabulary and difficulty blueprints
-tests/                             130 tests, including reproductions of every real bug found
+tests/                             151 tests, including reproductions of every real bug found
 docs/pipeline-audit-v4-technical-report.md   Full rule-by-rule technical reference
 examples/sample-run-ecommerce/     A real, javac-verified run, committed as a static artifact
 ```

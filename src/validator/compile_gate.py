@@ -129,6 +129,54 @@ def parse_errors(stderr: str) -> List[Dict]:
     return found
 
 
+# The complete Tier-1 vocabulary, named once so both _apply_tier1_fix and the
+# novel-shape detector below agree on how many categories exist (and so a test can
+# assert the count rather than trusting a number written in prose).
+TIER1_KINDS = (
+    "private_access",
+    "missing_override",
+    "duplicate_method",
+    "invalid_override",
+    "missing_symbol_class",
+)
+
+def novel_shape_signature(block: str) -> str:
+    """Coarse, stable identity for an error block that matched none of TIER1_KINDS.
+
+    Line numbers are normalised away so the same unrecognised message shape reported
+    at three different places counts once. Deliberately NOT a taxonomy - its only job
+    is to make "how many distinct shapes have we never seen before" a countable number.
+    """
+    reported = block.strip().splitlines()
+    first = reported[0] if reported else ""
+    m = re.search("error: (.*)$", first)
+    msg = m.group(1) if m else first
+    return re.sub("[0-9]+", "N", msg).strip()
+
+
+def compile_sources(sources: Dict[str, str]) -> Tuple[Optional[bool], str]:
+    """Compile a {class_name: source} map with the real javac.
+
+    Returns (True/False, stderr), or (None, "") when javac is unavailable - the same
+    tri-state as CompileVerificationGate.success, for the same reason: "we didn't look"
+    is not the same claim as "we looked and it's fine".
+
+    Exists so the student skeleton can be held to the same oracle as the solution. Phase 6
+    verifies the solution AST; the skeleton is derived from it afterwards by body-stubbing,
+    and the artifact the student actually receives had no oracle behind it at all.
+    """
+    if not is_javac_available():
+        return None, ""
+    scratch_dir = tempfile.mkdtemp(prefix="skeleton_gate_")
+    try:
+        for name, code in sources.items():
+            with open(os.path.join(scratch_dir, f"{name}.java"), "w", encoding="utf-8") as f:
+                f.write(code)
+        return _compile(scratch_dir)
+    finally:
+        shutil.rmtree(scratch_dir, ignore_errors=True)
+
+
 class CompileVerificationGate:
     """Phase 6 - ultimate safeguard. Renders classes to a scratch dir, runs the real javac,
     and repairs whatever it complains about. Tier 1 (free, deterministic) handles known error
@@ -142,10 +190,44 @@ class CompileVerificationGate:
         # actually run yet or skipped (no javac available) - see verify_and_repair's
         # docstring for why None is distinct from True.
         self.success: Optional[bool] = None
+        # Every javac error block that matched none of TIER1_KINDS, deduped by
+        # novel_shape_signature(). See _record_novel_shapes for why this is kept as a
+        # first-class artifact rather than silently escalated to Tier 2.
+        self.novel_error_shapes: List[Dict] = []
 
     def _log(self, msg: str):
         self.report.append(msg)
         print(f"[COMPILE_GATE] {msg}")
+
+    def _record_novel_shapes(self, errors: List[Dict]) -> None:
+        """Record every error block that matched none of the TIER1_KINDS categories.
+
+        The Tier-1 category set has no completeness proof and cannot have one - javac's
+        message space is not ours to bound. What CAN be made finite is *observation*: with
+        this, "no novel shape was seen across the supported input matrix" becomes a
+        falsifiable claim instead of an unexamined assumption, and adding category #6 stops
+        being a reaction to a bug report.
+
+        Before this, kind == "unknown" was only a routing decision (escalate to Tier 2) and
+        the epistemic fact was thrown away. The single trace it left was Tier 2 firing
+        slightly more often than usual - and Tier 2 is designed to be rare, so that is
+        precisely where such a signal goes to die unnoticed.
+        """
+        for err in errors:
+            if err.get("kind") != "unknown":
+                continue
+            sig = novel_shape_signature(err.get("raw", ""))
+            if any(existing["signature"] == sig for existing in self.novel_error_shapes):
+                continue
+            self.novel_error_shapes.append({
+                "signature": sig,
+                "source_class": err.get("source_class"),
+                "raw": err.get("raw", ""),
+            })
+            self._log(
+                f"NOVEL javac shape - matched none of the {len(TIER1_KINDS)} Tier-1 "
+                f"categories, so the Tier-1 vocabulary may be incomplete: {sig!r}"
+            )
 
     def _render_to_scratch(self, ast_classes: List[JavaClass], scratch_dir: str):
         class_map = {c.name: c for c in ast_classes}
@@ -295,6 +377,7 @@ class CompileVerificationGate:
                     return ast_classes
 
                 errors = parse_errors(stderr)
+                self._record_novel_shapes(errors)
                 any_fixed = False
                 applied_this_round = set()
                 for err in errors:
@@ -319,6 +402,7 @@ class CompileVerificationGate:
                 return ast_classes
 
             errors = parse_errors(stderr)
+            self._record_novel_shapes(errors)
             affected_classes = {
                 e.get("owner") or e.get("child") or e.get("source_class") for e in errors
             } - {None}

@@ -154,7 +154,7 @@ def run_detail_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", pres
     # Tier 1 (free, deterministic) reads the REAL javac error and auto-fixes known shapes.
     # Tier 2 (costly, capped to 1 attempt) is a last-resort LLM call for genuinely novel
     # errors that don't match any known pattern.
-    from src.validator.compile_gate import CompileVerificationGate
+    from src.validator.compile_gate import CompileVerificationGate, compile_sources
     java_builder = JavaBuilder()
     compile_gate = CompileVerificationGate(java_builder)
     ast_classes = compile_gate.verify_and_repair(ast_classes, domain, provider, max_tier1=3, max_tier2=1)
@@ -241,6 +241,27 @@ def run_detail_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", pres
         skeletons_dict[cls.name] = skeleton_code
             
     print(f"Rendered {len(ast_classes)} detailed Java files and skeletons to output/")
+
+    # 3i-bis. Skeleton compile gate. Phase 6 above verifies the SOLUTION ast; the skeleton
+    # is derived from it here by body-stubbing, and until this check existed the artifact
+    # the student actually receives had no oracle behind it at all - the solution was held
+    # to real javac and the skeleton was shipped on the assumption that stubbing can only
+    # ever make code more compilable. Same tri-state and same fail-closed rule as Phase 6:
+    # None (no javac on PATH) proceeds, a confirmed False refuses to ship.
+    skeleton_ok, skeleton_stderr = compile_sources(skeletons_dict)
+    if skeleton_ok is True:
+        print("[SKELETON_GATE] Student skeleton compiles cleanly (real javac).")
+    elif skeleton_ok is None:
+        print("[SKELETON_GATE] javac not found on PATH - skeleton compile check skipped (not the same as passing).")
+    else:
+        shutil.rmtree(skeleton_dir, ignore_errors=True)
+        raise RuntimeError(
+            "Student skeleton failed to compile - refusing to ship it. The reference "
+            "solution passed Phase 6, so the fault is in the body-stubbing step above, "
+            "not in the design. Skeleton output has been removed; "
+            "output/phase6_detailed_ast.json is kept for postmortem. javac said: "
+            + skeleton_stderr
+        )
     
     # 3j. Render Final Assignment Markdown
     from src.builders.markdown_builder import MarkdownBuilder
