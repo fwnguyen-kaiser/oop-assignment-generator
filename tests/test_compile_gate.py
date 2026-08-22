@@ -26,6 +26,37 @@ def test_invalid_override_regex_matches_cannot_implement_not_just_cannot_overrid
     assert errors[0]["parent"] == "Base"
 
 
+class TestGateSuccessSignal:
+    """Independent-audit finding: verify_and_repair() used to return only the AST, with
+    no way for a caller to know whether the returned code actually compiles - nothing
+    in detail_pipeline.py ever checked before shipping the final .java/diagram/skeleton/
+    assignment.md files, so a confirmed-broken compile could ship anyway with only a
+    console log line no one was necessarily watching. gate.success is the fix; these
+    lock in its 3 states."""
+
+    def test_success_true_when_clean(self):
+        cls = JavaClass(name="Bar", fields=[])
+        gate = CompileVerificationGate(JavaBuilder())
+        gate.verify_and_repair([cls], domain=None, provider=None, max_tier1=3, max_tier2=0)
+        assert gate.success is True
+
+    def test_success_false_when_unresolvable(self):
+        cls = JavaClass(name="Foo", methods=[
+            JavaMethod(modifier="public", return_type=JavaTypeRef(name="int"), name="get", parameters=[], body="return undefinedVar;"),
+        ])
+        gate = CompileVerificationGate(JavaBuilder())
+        gate.verify_and_repair([cls], domain=None, provider=None, max_tier1=3, max_tier2=0)
+        assert gate.success is False
+
+    def test_success_none_when_javac_unavailable(self, monkeypatch):
+        import src.validator.compile_gate as cg
+        monkeypatch.setattr(cg, "is_javac_available", lambda: False)
+        cls = JavaClass(name="Bar", fields=[])
+        gate = CompileVerificationGate(JavaBuilder())
+        gate.verify_and_repair([cls], domain=None, provider=None, max_tier1=3, max_tier2=0)
+        assert gate.success is None
+
+
 def test_missing_override_batch_fills_every_missing_method_not_just_the_first():
     """Live-found bug: javac only reports the FIRST missing-override method per class
     at a time, one per recompile - the old fix action added exactly one stub per

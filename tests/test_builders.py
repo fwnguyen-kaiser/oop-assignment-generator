@@ -301,3 +301,39 @@ def test_has_a_field_on_interface_renders_loudly_instead_of_silently_dropping():
     )
     rendered = JavaBuilder().render_class(cls, {"BadInterface": cls})
     assert "private int count;" in rendered
+
+
+class TestIdentifierSafety:
+    """Independent-audit finding: JavaField/JavaMethod/JavaParameter.name had zero
+    validation, unlike SketchEntity.name (PascalCase-validated since Phase 1). An
+    unsafe name could both break the rendered .java file and flow unescaped into
+    mermaid_builder.py's diagram output, which has no compiler-equivalent oracle to
+    catch it."""
+
+    def test_field_rejects_unsafe_names(self):
+        import pytest
+        for bad in ["bad name", "bad-name", "123bad", 'bad"quote', "bad<tag>", ""]:
+            with pytest.raises(Exception):
+                JavaField(modifier="private", type_ref=JavaTypeRef(name="int"), name=bad)
+
+    def test_field_accepts_valid_identifier(self):
+        f = JavaField(modifier="private", type_ref=JavaTypeRef(name="int"), name="balance_1")
+        assert f.name == "balance_1"
+
+    def test_method_rejects_unsafe_names(self):
+        import pytest
+        with pytest.raises(Exception):
+            JavaMethod(modifier="public", return_type=None, name="bad method()", parameters=[], body=None)
+
+    def test_signature_method_rejects_unsafe_names(self):
+        import pytest
+        from src.schemas.java_ast import SignatureMethod
+        with pytest.raises(Exception):
+            SignatureMethod(modifier="public", return_type=None, name="bad<name>", parameters=[])
+
+    def test_reserved_keyword_is_still_accepted_here(self):
+        """Rejecting Java keywords is deliberately NOT this validator's job - that's
+        content_repair_pipeline.py's 4.6 rule, which renames rather than rejects.
+        Adding a keyword blocklist here would double up with 4.6's friendlier fix."""
+        f = JavaField(modifier="private", type_ref=JavaTypeRef(name="String"), name="class")
+        assert f.name == "class"

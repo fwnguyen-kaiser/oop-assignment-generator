@@ -3,7 +3,7 @@ import re
 import shutil
 import subprocess
 import tempfile
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from src.schemas.java_ast import JavaClass, JavaField, JavaTypeRef
 from src.validator.content_repair_pipeline import ContentRepairPipeline, default_body_for_return_type, method_signature
 
@@ -138,6 +138,10 @@ class CompileVerificationGate:
     def __init__(self, java_builder):
         self.java_builder = java_builder
         self.report: List[str] = []
+        # True = confirmed compiles, False = confirmed does NOT compile, None = never
+        # actually run yet or skipped (no javac available) - see verify_and_repair's
+        # docstring for why None is distinct from True.
+        self.success: Optional[bool] = None
 
     def _log(self, msg: str):
         self.report.append(msg)
@@ -263,8 +267,17 @@ class CompileVerificationGate:
         return False
 
     def verify_and_repair(self, ast_classes: List[JavaClass], domain, provider, max_tier1: int = 3, max_tier2: int = 1) -> List[JavaClass]:
+        """Sets self.success to True (confirmed compiles), False (confirmed does NOT
+        compile - caller must not ship this as a final deliverable), or None (never
+        actually checked, e.g. no javac on PATH - distinct from True, since "we didn't
+        look" is not the same claim as "we looked and it's fine"). Found live: nothing
+        downstream ever read this gate's own pass/fail state before - detail_pipeline.py
+        shipped .java files, diagrams, and the assignment brief unconditionally even
+        when this method had already logged "Compile verification FAILED... shipping
+        best-effort output" to itself and no one else."""
         if not is_javac_available():
             self._log("javac not found on PATH - skipping compile verification (Phase 6 disabled for this run).")
+            self.success = None
             return ast_classes
 
         class_map = {c.name: c for c in ast_classes}
@@ -278,6 +291,7 @@ class CompileVerificationGate:
                 if success:
                     if attempt > 0:
                         self._log(f"Tier 1: compiled successfully after {attempt} deterministic fix round(s).")
+                    self.success = True
                     return ast_classes
 
                 errors = parse_errors(stderr)
@@ -294,12 +308,14 @@ class CompileVerificationGate:
                     break
 
             if success:
+                self.success = True
                 return ast_classes
 
             # Tier 2: capped, last-resort LLM repair for whatever Tier 1 couldn't resolve
             self._render_to_scratch(ast_classes, scratch_dir)
             success, stderr = _compile(scratch_dir)
             if success:
+                self.success = True
                 return ast_classes
 
             errors = parse_errors(stderr)
@@ -310,6 +326,7 @@ class CompileVerificationGate:
 
             if not affected_classes:
                 self._log(f"Tier 1 exhausted, no resolvable class identified. Shipping best-effort output with known compile errors:\n{stderr}")
+                self.success = False
                 return ast_classes
 
             for attempt in range(max_tier2):
@@ -330,6 +347,7 @@ class CompileVerificationGate:
                 success, stderr = _compile(scratch_dir)
                 if success:
                     self._log("Tier 2: LLM fix resolved the remaining compile errors.")
+                    self.success = True
                     return ast_classes
 
             if not success:
@@ -337,6 +355,7 @@ class CompileVerificationGate:
                     "Compile verification FAILED after Tier 1 + Tier 2 - shipping best-effort output. "
                     f"Remaining javac errors:\n{stderr}"
                 )
+            self.success = success
             return ast_classes
         finally:
             shutil.rmtree(scratch_dir, ignore_errors=True)

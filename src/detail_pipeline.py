@@ -153,19 +153,35 @@ def run_detail_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", pres
     # 3f. Phase 6: Compile Verification Gate (ultimate safeguard, not primary fix mechanism)
     # Tier 1 (free, deterministic) reads the REAL javac error and auto-fixes known shapes.
     # Tier 2 (costly, capped to 1 attempt) is a last-resort LLM call for genuinely novel
-    # errors that don't match any known pattern. Disclosed limitation: this is best-effort -
-    # if both tiers are exhausted, the output ships anyway with a clearly logged warning
-    # rather than silently failing or looping indefinitely.
+    # errors that don't match any known pattern.
     from src.validator.compile_gate import CompileVerificationGate
     java_builder = JavaBuilder()
     compile_gate = CompileVerificationGate(java_builder)
     ast_classes = compile_gate.verify_and_repair(ast_classes, domain, provider, max_tier1=3, max_tier2=1)
 
     # 3g. Save detailed AST (post-Phase-6, so its filename reflects that, not the stale
-    # "phase4_detailed_ast.json" this was named before Phase 5a-i/5a-ii/6 existed)
+    # "phase4_detailed_ast.json" this was named before Phase 5a-i/5a-ii/6 existed).
+    # Always saved, even on failure below - this is a debug artifact for postmortem, not
+    # a final deliverable.
     with open("output/phase6_detailed_ast.json", "w", encoding="utf-8") as f:
         json.dump([node.model_dump() for node in ast_classes], f, indent=2)
     print("Saved detailed AST to output/phase6_detailed_ast.json")
+
+    # Found live via an independent audit: nothing downstream ever checked whether
+    # compile_gate actually succeeded before this fix - every final deliverable (detailed
+    # diagram, rendered .java files, student skeleton, assignment.md) got written
+    # unconditionally even when compile_gate had already logged "Compile verification
+    # FAILED... shipping best-effort output" to no one but its own internal report. A
+    # generated Java assignment that doesn't compile is the worst possible outcome for a
+    # student, so refuse to ship the final package rather than silently degrade -
+    # compile_gate.success is None (never checked, e.g. no javac on PATH) or True
+    # (confirmed compiles) are both fine to proceed on; only a confirmed False blocks.
+    if compile_gate.success is False:
+        raise RuntimeError(
+            "Phase 6 compile verification failed - refusing to ship a non-compiling "
+            "assignment. See output/phase6_detailed_ast.json and the [COMPILE_GATE] log "
+            "lines above for what's still broken:\n" + "\n".join(compile_gate.report)
+        )
 
     # 3h. Render the detailed Mermaid diagram
     from src.builders.mermaid_builder import MermaidBuilder

@@ -1,5 +1,23 @@
-from pydantic import BaseModel, Field
+import re
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional
+
+# Unlike SketchEntity.name (already validated PascalCase at Phase 1), field/method/
+# parameter names had no identifier-safety check at all before this - found via an
+# independent audit: nothing stopped an LLM structured-output response from putting an
+# arbitrary string here, which would both break the rendered .java file (a real javac
+# syntax error, though Phase 6 would eventually catch that) and flow unescaped into
+# mermaid_builder.py's diagram output with no compiler-equivalent oracle to catch THAT.
+# Validating at the schema boundary (where Gemini's response is actually parsed) is
+# cheaper and clearer than only ever discovering it downstream.
+_JAVA_IDENTIFIER = re.compile(r'^[A-Za-z_$][A-Za-z0-9_$]*$')
+
+
+def _validate_java_identifier(v: str) -> str:
+    if not _JAVA_IDENTIFIER.match(v):
+        raise ValueError(f"'{v}' is not a valid Java identifier")
+    return v
+
 
 class JavaTypeRef(BaseModel):
     name: str
@@ -10,9 +28,19 @@ class JavaField(BaseModel):
     type_ref: JavaTypeRef
     name: str
 
+    @field_validator('name')
+    @classmethod
+    def name_must_be_valid_identifier(cls, v):
+        return _validate_java_identifier(v)
+
 class JavaParameter(BaseModel):
     type_ref: JavaTypeRef
     name: str
+
+    @field_validator('name')
+    @classmethod
+    def name_must_be_valid_identifier(cls, v):
+        return _validate_java_identifier(v)
 
 class JavaMethod(BaseModel):
     modifier: str = "public"
@@ -21,6 +49,11 @@ class JavaMethod(BaseModel):
     parameters: List[JavaParameter] = []
     body: Optional[str] = None
     is_abstract: bool = False
+
+    @field_validator('name')
+    @classmethod
+    def name_must_be_valid_identifier(cls, v):
+        return _validate_java_identifier(v)
 
 class JavaClass(BaseModel):
     name: str
@@ -56,6 +89,11 @@ class SignatureMethod(BaseModel):
     name: str
     parameters: List[JavaParameter] = []
     is_abstract: bool = False
+
+    @field_validator('name')
+    @classmethod
+    def name_must_be_valid_identifier(cls, v):
+        return _validate_java_identifier(v)
 
 class SignatureEntity(BaseModel):
     name: str = Field(description="The name of the class exactly as provided")
