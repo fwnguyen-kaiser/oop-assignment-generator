@@ -5,7 +5,7 @@
 <p>
   <img alt="Python" src="https://img.shields.io/badge/python-3.14-3776AB?style=flat-square&logo=python&logoColor=white">
   <img alt="Java" src="https://img.shields.io/badge/target-Java%2021-ED8B00?style=flat-square&logo=openjdk&logoColor=white">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-112%20passing-2EA44F?style=flat-square&logo=pytest&logoColor=white">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-119%20passing-2EA44F?style=flat-square&logo=pytest&logoColor=white">
   <img alt="LLM" src="https://img.shields.io/badge/LLM-Gemini-8E75B2?style=flat-square&logo=googlegemini&logoColor=white">
   <img alt="Architecture" src="https://img.shields.io/badge/architecture-2--pass%20%7C%207--phase-4C6EF5?style=flat-square">
   <img alt="Verification" src="https://img.shields.io/badge/verification-real%20javac-F59E0B?style=flat-square">
@@ -100,7 +100,7 @@ Phase 6 is the newest and most important safety net: instead of hand-writing an 
 
 Every claim below was verified this session, not assumed:
 
-- **112 automated tests pass** (`pytest tests/ -q`), covering all 7 phases, including reproductions of every real bug found (not just happy-path cases).
+- **119 automated tests pass** (`pytest tests/ -q`), covering all 7 phases, including reproductions of every real bug found (not just happy-path cases).
 - **Live end-to-end runs across 5 domains** (banking, e-commerce, library, RPG, animal kingdom) and 3 difficulty presets, each verified by compiling the generated output with a real JDK (`javac ... ` → exit code 0), not just "it ran without a Python exception."
 - A curated real run is committed at [`examples/sample-run-ecommerce/`](examples/sample-run-ecommerce/) — full solution, skeleton, diagrams, and assignment brief, reproducible with `python run_all.py configs/domains/e_commerce.yaml configs/presets/advanced.yaml` given a `GEMINI_API_KEY`.
 - Multiple real, previously-shipped compile-breaking bugs were found by actually running `javac` against generated output (not by inspection) — duplicate methods, unfulfilled interface contracts, invalid overrides, missing imports, private-field access across inheritance — each with a before/after `javac` exit code as evidence. Details and root causes: [`docs/pipeline-audit-v4-technical-report.md`](docs/pipeline-audit-v4-technical-report.md).
@@ -135,6 +135,16 @@ All 5 fixes independently verified live (real javac, before and after) and locke
 
 ---
 
+## 📏 Measured Before Building: Phase 2.fb
+
+An earlier idea was floated for a "Phase 2.fb" — a constraint-aware LLM retry triggered whenever Phase 2's repair destroys or invents structure the LLM didn't propose (e.g. deleting an entity to satisfy a class-count limit). Instead of assuming it was needed, a cheap harness (`measure_lossiness.py` — runs only Phase 1→2→2.5, never the expensive Phase 5a/6 body-writing calls) measured it against real domains, with the decision threshold **pre-registered before running anything**: <15% of runs showing destructive repair → skip it, >35% → build it, in between → a genuine judgment call.
+
+First real run (30 trials, 5 domains × 3 presets): **20%** — the ambiguous zone. Breaking the causes down showed 5 of 6 lossy runs shared one root cause: `2.5_excess_classes` deleting an entity, concentrated on low-`max_classes` presets whose domain `entity_hints` listed more candidates than the limit allowed — `generate_sketch`'s prompt called structural guidance "soft, don't worry about precision" while separately *requiring* novel entities on top of the hints, actively pushing counts above whatever `max_classes` an instructor's preset configured (presets are instructor-editable templates, so the fix had to generalize to any limit, not just the shipped ones).
+
+Fixed with a prompt change alone — 0 extra LLM calls: state the class-count limit as a hard constraint with the actual hint count computed and shown, and reframe "invent novel entities" as *replacing* a weak hint rather than adding to the total. Re-ran the identical 30-trial measurement: **20% → 6.7%**, now below the pre-registered 15% line. **Decision: Phase 2.fb was not built** — a cheap, general fix resolved the concentrated cause; building a whole new LLM-retry mechanism for a problem this narrow would have been the wrong trade.
+
+---
+
 ## 🚀 Running It
 
 ```bash
@@ -146,7 +156,7 @@ python run_all.py configs/domains/<domain>.yaml configs/presets/<preset>.yaml
 Outputs land in `output/` (gitignored, regenerated every run — see `examples/` for a fixed reference run).
 
 ```bash
-pytest tests/ -q   # 112 tests
+pytest tests/ -q   # 119 tests
 ```
 
 ## 📁 Repo Layout
@@ -162,7 +172,7 @@ src/detail_pipeline.py             Phase 5a-7 orchestration
 src/builders/                      Phase 4/7 - AST, Mermaid diagram, and assignment.md rendering
 src/llm/gemini.py                  All LLM-facing prompts and structured-output contracts
 configs/domains/, configs/presets/ Domain vocabulary and difficulty blueprints
-tests/                             112 tests, including reproductions of every real bug found
+tests/                             119 tests, including reproductions of every real bug found
 docs/pipeline-audit-v4-technical-report.md   Full rule-by-rule technical reference
 examples/sample-run-ecommerce/     A real, javac-verified run, committed as a static artifact
 ```
