@@ -118,6 +118,7 @@ These were raised and confirmed explicitly during development, not discovered la
 4. **Cost**: up to 7–8 LLM calls per generation now, versus 1 in the original single-call design (this is intentional — it's the direct cost of the correctness guarantees above — but has not been measured at scale).
 5. **Coverage is not exhaustive by choice.** 5 domains × 3 presets = 15 possible combinations exist; roughly 8 were live-verified. Domains are open-ended (arbitrary new topics can always be added), so 100% coverage was explicitly decided against in favor of stopping once the marginal bug-discovery rate dropped — a disclosed trade-off, not a gap that was missed.
 6. **The detailed (AST-level) class diagram still cannot distinguish composition from aggregation** — only the sketch-level diagram and the assignment brief were fixed to make that distinction, because they're the only two renderers still connected to the one data structure (`LogicalPlan`) where the distinction survives past the structural-bootstrap phase.
+7. **`mermaid_builder.py`/`markdown_builder.py` (diagram/assignment rendering) were reviewed but not oracle-verified.** Every code branch was manually checked against Mermaid's `classDiagram` grammar and no bug was found - but unlike every other claim in this README, there is no real compiler for Mermaid/Markdown available in this environment to confirm it the way `javac` confirms Java output, so this is a careful read-through, not a proof. Labeled explicitly rather than folded into the oracle-verified claims above.
 
 ---
 
