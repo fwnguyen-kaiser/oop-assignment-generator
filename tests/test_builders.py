@@ -255,3 +255,49 @@ def test_composition_aggregation_association_combined_on_same_entity():
     assert products_field.type_ref.is_collection is True
     assert coupons_field.type_ref.is_collection is True
     assert customer_field.type_ref.is_collection is False
+
+
+def test_render_class_defers_to_an_explicit_method_matching_an_accessor_signature():
+    """Live-found bug: JavaBuilder used to unconditionally generate a getter/setter
+    for every private field regardless of whether the class already declares an
+    explicit method with that exact (name, arity) - so a class whose field auto-
+    generates `getValue()` AND separately has an explicit `getValue()` method (e.g.
+    fulfilling an interface contract) rendered BOTH, a real javac 'method already
+    defined' error, even when their signatures matched exactly."""
+    cls = JavaClass(
+        name="Child",
+        implements=["Base"],
+        fields=[JavaField(modifier="private", type_ref=JavaTypeRef(name="boolean"), name="value")],
+        methods=[JavaMethod(modifier="public", return_type=JavaTypeRef(name="boolean"), name="getValue", parameters=[], body="return false;")],
+    )
+    rendered = JavaBuilder().render_class(cls, {"Child": cls})
+    assert rendered.count("getValue()") == 1
+    # setValue has no explicit collision, so the auto-generated setter must still exist.
+    assert "setValue(boolean value)" in rendered
+
+
+def test_render_class_still_generates_accessor_when_no_explicit_method_collides():
+    cls = JavaClass(
+        name="Product",
+        fields=[JavaField(modifier="private", type_ref=JavaTypeRef(name="double"), name="price")],
+    )
+    rendered = JavaBuilder().render_class(cls, {"Product": cls})
+    assert "public double getPrice()" in rendered
+    assert "public void setPrice(double price)" in rendered
+
+
+def test_has_a_field_on_interface_renders_loudly_instead_of_silently_dropping():
+    """An interface holding private mutable state is invalid Java - repair_pipeline.py
+    strips this before rendering in the normal pipeline, so this should be unreachable
+    there, but JavaBuilder itself used to silently skip ALL fields (and therefore the
+    constructor/accessors too) whenever is_interface=True, which would hide the data
+    loss with no error if this were ever reached some other way (e.g. calling
+    compile_logical_plan directly). Rendering the field and letting javac reject it
+    matches how `implements` is already handled for the equivalent case."""
+    cls = JavaClass(
+        name="BadInterface",
+        is_interface=True,
+        fields=[JavaField(modifier="private", type_ref=JavaTypeRef(name="int"), name="count")],
+    )
+    rendered = JavaBuilder().render_class(cls, {"BadInterface": cls})
+    assert "private int count;" in rendered

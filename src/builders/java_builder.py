@@ -146,14 +146,20 @@ class JavaBuilder:
         if java_class.implements: decl += f" implements {', '.join(java_class.implements)}"
             
         lines.append(f"{decl} {{")
-        
-        # Fields
+
+        # Fields. Deliberately NOT gated on is_interface: repair_pipeline.py already
+        # strips has-a edges from an interface source before this ever runs (an
+        # interface can't hold private mutable state), so this should never actually
+        # fire in the normal pipeline - but if it ever does (e.g. compile_logical_plan
+        # called directly, bypassing repair), render the field with its real modifier
+        # and let javac reject it loudly instead of the data silently vanishing with
+        # no error, matching how `implements` is already handled below.
+        for f in java_class.fields:
+            type_str = f"List<{f.type_ref.name}>" if f.type_ref.is_collection else f.type_ref.name
+            lines.append(f"    {f.modifier} {type_str} {f.name};")
+        if java_class.fields: lines.append("")
+
         if not java_class.is_interface:
-            for f in java_class.fields:
-                type_str = f"List<{f.type_ref.name}>" if f.type_ref.is_collection else f.type_ref.name
-                lines.append(f"    {f.modifier} {type_str} {f.name};")
-            if java_class.fields: lines.append("")
-                
             # Constructor
             inherited_fields = self.get_inherited_fields(java_class.name, all_classes_map) if all_classes_map else []
             all_constructor_fields = inherited_fields + java_class.fields
@@ -183,21 +189,31 @@ class JavaBuilder:
                 lines.append("    }")
                 lines.append("")
                 
-            # Getters & Setters
+            # Getters & Setters. Skip generating one when the class already declares
+            # an explicit method with that exact (name, arity) - most commonly because
+            # it's the class's actual implementation of an interface/abstract contract
+            # (e.g. `getValue(): boolean`) whose field-driven auto-accessor would
+            # otherwise collide with it as a real duplicate-method javac error, found
+            # live: a class with a `value` field auto-generating `getValue()` AND a
+            # required `getValue()` contract implementation rendered BOTH, even when
+            # their signatures matched exactly.
+            explicit_method_sigs = {(m.name, len(m.parameters)) for m in java_class.methods}
             for f in java_class.fields:
                 if f.modifier in ["private", "protected"]:
                     type_str = f"List<{f.type_ref.name}>" if f.type_ref.is_collection else f.type_ref.name
                     capitalized = f.name[0].upper() + f.name[1:]
-                    
+
                     # Getter
-                    lines.append(f"    public {type_str} get{capitalized}() {{")
-                    lines.append(f"        return this.{f.name};")
-                    lines.append("    }")
-                    
+                    if (f"get{capitalized}", 0) not in explicit_method_sigs:
+                        lines.append(f"    public {type_str} get{capitalized}() {{")
+                        lines.append(f"        return this.{f.name};")
+                        lines.append("    }")
+
                     # Setter
-                    lines.append(f"    public void set{capitalized}({type_str} {f.name}) {{")
-                    lines.append(f"        this.{f.name} = {f.name};")
-                    lines.append("    }")
+                    if (f"set{capitalized}", 1) not in explicit_method_sigs:
+                        lines.append(f"    public void set{capitalized}({type_str} {f.name}) {{")
+                        lines.append(f"        this.{f.name} = {f.name};")
+                        lines.append("    }")
             if java_class.fields: lines.append("")
                 
         # Methods

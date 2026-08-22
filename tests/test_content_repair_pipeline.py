@@ -256,3 +256,46 @@ def test_default_body_for_return_type():
     assert default_body_for_return_type(JavaTypeRef(name="boolean")) == "return false;"
     assert default_body_for_return_type(JavaTypeRef(name="String")) == "return null;"
     assert default_body_for_return_type(None) is None
+
+
+def test_4_1_does_not_drop_a_method_that_fulfills_an_interface_contract():
+    """Live-found bug: 4.1 (accessor-collision drop) used to delete ANY method
+    colliding with an auto-generated field accessor by (name, arity) alone, without
+    checking whether that method is the class's actual implementation of an interface
+    contract. Repro: Base requires `getValue(): boolean`; Child's own field `value`
+    auto-generates a same-named/arity accessor. After the fill-then-repair-again flow
+    detail_pipeline.py actually uses (repair -> find_missing_contract_methods -> fill ->
+    repair again), the filled contract method used to vanish, leaving `implements Base`
+    unfulfilled with no error raised anywhere in content_repair_pipeline.py itself."""
+    base = JavaClass(name="Base", is_interface=True, methods=[
+        _method("getValue", return_type="boolean", body=None, is_abstract=True),
+    ])
+    child = JavaClass(name="Child", implements=["Base"], fields=[_field("value", "boolean")])
+    crp = ContentRepairPipeline()
+    ast = crp.repair([base, child])
+
+    missing = crp.find_missing_contract_methods(ast)
+    class_map = {c.name: c for c in ast}
+    for cname, methods in missing.items():
+        for m in methods:
+            filled = m.model_copy(deep=True)
+            filled.body = default_body_for_return_type(filled.return_type)
+            filled.is_abstract = False
+            class_map[cname].methods.append(filled)
+
+    ast = crp.repair(ast)  # 2nd pass, as detail_pipeline.py does after bodies exist
+
+    child_final = next(c for c in ast if c.name == "Child")
+    assert any(m.name == "getValue" and m.body is not None for m in child_final.methods)
+    assert crp.find_missing_contract_methods(ast) == {}
+
+
+def test_4_1_still_drops_a_non_required_accessor_collision():
+    """The exemption above must be scoped to genuinely required signatures only - an
+    LLM-invented redundant getter that ISN'T satisfying any contract should still be
+    dropped in favor of the deterministic auto-generated accessor."""
+    cls = JavaClass(name="Product", fields=[_field("price")], methods=[
+        _method("getPrice", return_type="double", body="return this.price * 2;"),
+    ])
+    result = ContentRepairPipeline().repair([cls])[0]
+    assert not any(m.name == "getPrice" for m in result.methods)

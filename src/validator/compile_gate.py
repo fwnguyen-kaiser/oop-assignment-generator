@@ -47,7 +47,12 @@ def _split_error_blocks(stderr: str) -> List[str]:
 
 
 _PRIVATE_ACCESS = re.compile(r"error: (?P<symbol>\w+) has private access in (?P<owner>\w+)")
-_INVALID_OVERRIDE = re.compile(r"error: \w+\(\)? ?.* in (?P<child>\w+) cannot override \w+\(.*\) in (?P<parent>\w+)")
+# javac uses a DIFFERENT verb depending on whether the mismatch is against a
+# superclass method ("cannot override") or an interface method ("cannot implement") -
+# same error category, two message shapes. Found live: a class implementing an
+# interface with a mismatched return type produced "cannot implement", which this
+# regex used to miss entirely, falling through as "unknown" and never getting fixed.
+_INVALID_OVERRIDE = re.compile(r"error: \w+\(\)? ?.* in (?P<child>\w+) cannot (?:override|implement) \w+\(.*\) in (?P<parent>\w+)")
 _INVALID_OVERRIDE_METHOD = re.compile(r"error: (?P<method>\w+)\(")
 _DUPLICATE_METHOD = re.compile(r"error: method (?P<method>\w+)\(.*\) is already defined in class (?P<owner>\w+)")
 _MISSING_OVERRIDE = re.compile(r"error: (?P<child>\w+) is not abstract and does not override abstract method (?P<method>\w+)\([^)]*\) in (?P<parent>\w+)")

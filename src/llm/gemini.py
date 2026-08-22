@@ -75,6 +75,9 @@ Note DigitalProduct declares its superclass via its OWN `extends` field, not a r
             "- A class/abstract class can NEVER extend an interface, and an interface can NEVER extend a "
             "class/abstract class. Use the 'implements' relationship (source=class, target=interface) for "
             "a class fulfilling an interface contract instead.",
+            "- An `is_interface: true` entity can NEVER be the source of a 'composition', 'aggregation', or "
+            "'association' relationship - an interface cannot hold state. If a capability needs data, put "
+            "that relationship on a concrete class that implements the interface instead.",
 
             few_shot_example,
             

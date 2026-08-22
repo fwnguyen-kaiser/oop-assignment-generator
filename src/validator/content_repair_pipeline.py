@@ -85,6 +85,32 @@ class ContentRepairPipeline:
             return fixed
         return name
 
+    def _required_contract_methods(self, cls: JavaClass, class_map: Dict[str, JavaClass]) -> Dict[tuple, JavaMethod]:
+        """Every method signature `cls` MUST provide a body for, mapped to the method
+        that declares the requirement - interface methods from any implemented
+        interface anywhere in its extends chain, plus body-less abstract methods
+        declared by an ancestor. Shared by 4.1 (so it never drops the one method that
+        fulfills a contract) and find_missing_contract_methods (so both use the exact
+        same definition of "required")."""
+        chain = []
+        cur = cls
+        while cur:
+            chain.append(cur)
+            cur = class_map.get(cur.extends) if cur.extends else None
+
+        required: Dict[tuple, JavaMethod] = {}
+        for c in chain:
+            for iface_name in c.implements:
+                iface = class_map.get(iface_name)
+                if iface and iface.is_interface:
+                    for m in iface.methods:
+                        required[method_signature(m)] = m
+            if c.is_abstract:
+                for m in c.methods:
+                    if m.body is None:
+                        required[method_signature(m)] = m
+        return required
+
     def _get_inherited_methods(self, class_name: str, class_map: Dict[str, JavaClass]) -> List[JavaMethod]:
         methods = []
         cls = class_map.get(class_name)
@@ -134,6 +160,12 @@ class ContentRepairPipeline:
             # (own fields AND inherited fields - a subclass accessor override is redundant
             # since the ancestor's auto-generated one already exists, and if the LLM got the
             # return type wrong it would be an invalid override / compile error)
+            # EXCEPT a method that's the class's actual implementation of an interface/
+            # abstract contract - found live: an interface requiring `getValue(): boolean`
+            # implemented by a class whose own field happens to auto-generate a same-
+            # named/arity accessor had its real implementation silently deleted here,
+            # leaving `implements Base` with no working getValue() at all.
+            required_sigs = set(self._required_contract_methods(cls, class_map).keys())
             inherited_fields_for_accessors = self._builder.get_inherited_fields(cls.name, class_map)
             auto_accessor_sigs = set()
             for f in list(cls.fields) + inherited_fields_for_accessors:
@@ -143,7 +175,7 @@ class ContentRepairPipeline:
 
             filtered_methods = []
             for m in cls.methods:
-                if (m.name, len(m.parameters)) in auto_accessor_sigs:
+                if (m.name, len(m.parameters)) in auto_accessor_sigs and method_signature(m) not in required_sigs:
                     self.log_action("4.1_accessor_collision", cls.name, f"method '{m.name}' collides with an auto-generated accessor", "dropped LLM-invented method")
                     continue
                 filtered_methods.append(m)
@@ -222,17 +254,7 @@ class ContentRepairPipeline:
                 chain.append(cur)
                 cur = class_map.get(cur.extends) if cur.extends else None
 
-            required: Dict[tuple, JavaMethod] = {}
-            for c in chain:
-                for iface_name in c.implements:
-                    iface = class_map.get(iface_name)
-                    if iface and iface.is_interface:
-                        for m in iface.methods:
-                            required[method_signature(m)] = m
-                if c.is_abstract:
-                    for m in c.methods:
-                        if m.body is None:
-                            required[method_signature(m)] = m
+            required_by_sig = self._required_contract_methods(cls, class_map)
 
             fulfilled = set()
             for c in chain:
@@ -240,7 +262,7 @@ class ContentRepairPipeline:
                     if m.body is not None:
                         fulfilled.add(method_signature(m))
 
-            missing_methods = [m for key, m in required.items() if key not in fulfilled]
+            missing_methods = [m for key, m in required_by_sig.items() if key not in fulfilled]
             if missing_methods:
                 missing[cls.name] = missing_methods
 
