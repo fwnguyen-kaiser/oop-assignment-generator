@@ -3,15 +3,17 @@ from src.schemas.blueprint import BlueprintPreset
 from src.schemas.domain import DomainConfig
 from src.validator.repair_pipeline import StructuralRepairPipeline
 
-def make_sketch(entities_names, edges):
+def make_sketch(entities_names, edges, extends_map=None):
+    extends_map = extends_map or {}
     entities = []
     for name in entities_names:
         entities.append(SketchEntity(
             name=name,
             kind="supporting" if name == "InterestBearing" else "core",
-            note="Test entity"
+            note="Test entity",
+            extends=extends_map.get(name),
         ))
-    
+
     relationships = []
     for f, t, typ in edges:
         relationships.append(SketchRelationship(
@@ -19,7 +21,7 @@ def make_sketch(entities_names, edges):
             to_entity=t,
             type=typ
         ))
-        
+
     return SketchPlan(
         design_rationale="Test",
         entities=entities,
@@ -27,13 +29,19 @@ def make_sketch(entities_names, edges):
     )
 
 def test_pure_implements_target_becomes_interface():
-    """Node chỉ nhận implements-edges, chưa từng là true-parent qua inheritance"""
+    """Node chỉ nhận implements-edges, chưa từng là true-parent qua inheritance.
+
+    Previously this relied on repair_pipeline's rule 2.1 downgrading a SECOND
+    'inheritance' edge from the same class into 'implements' - that pathway no longer
+    exists: SketchEntity.extends is a single Optional[str] (Tầng 0 schema change), so a
+    class can no longer represent two superclasses in the first place. A schema-
+    constrained LLM would declare its ONE real superclass via `extends` and use
+    'implements' directly for anything else, so that's how this sketch is built."""
     sketch = make_sketch(
         ["SavingsAccount", "CheckingAccount", "Account", "InterestBearing"],
-        [("SavingsAccount", "Account", "inheritance"),
-         ("SavingsAccount", "InterestBearing", "inheritance"),  # sẽ bị 2.1 downgrade thành implements
-         ("CheckingAccount", "Account", "inheritance"),
-         ("CheckingAccount", "InterestBearing", "inheritance")]
+        [("SavingsAccount", "InterestBearing", "implements"),
+         ("CheckingAccount", "InterestBearing", "implements")],
+        extends_map={"SavingsAccount": "Account", "CheckingAccount": "Account"},
     )
     
     # Mock preset and domain

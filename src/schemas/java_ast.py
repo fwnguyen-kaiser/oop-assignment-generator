@@ -27,6 +27,9 @@ class JavaClass(BaseModel):
     is_abstract: bool = False
     is_interface: bool = False
     extends: Optional[str] = None
+    # Interface-extends-interface only (JLS allows multiple parents there, unlike
+    # the single-parent `extends` above which is for class/abstract-class only).
+    extends_interfaces: List[str] = []
     implements: List[str] = []
     fields: List[JavaField] = []
     methods: List[JavaMethod] = []

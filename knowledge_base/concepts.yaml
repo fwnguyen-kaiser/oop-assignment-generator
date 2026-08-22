@@ -5,11 +5,11 @@ inheritance:
   definition:
     - "Represents an is-a relationship between classes, establishing a hierarchy."
   rules:
-    - "Directionality: The 'source' MUST be the Subclass (Child), and the 'target' MUST be the Superclass (Parent). Do NOT invert this."
-    - "Depth: The inheritance depth defines the maximum number of consecutive inheritance edges from a leaf subclass to the root base class."
+    - "Not a relationship: inheritance is declared on the entity itself via its `extends` field (a single superclass name, or null), never via a 'relationships' entry."
+    - "Depth: the inheritance depth defines the maximum number of consecutive `extends` links from a leaf subclass to the root base class."
   examples:
-    - "Depth 2: Car (source) -> Vehicle (target)"
-    - "Depth 3: CheckingAccount (source) -> BankAccount (target) -> Account (target)"
+    - "Depth 2: Car sets extends='Vehicle'"
+    - "Depth 3: CheckingAccount sets extends='BankAccount', which itself sets extends='Account'"
 
 abstraction:
   definition:
@@ -24,7 +24,7 @@ interface:
     - "Defines a contract of behavior that implementing classes must fulfill."
   rules:
     - "Interface Class: Set 'is_interface: true' on any entity that acts purely as a contract."
-    - "Use the 'implementation' relation (or 'inheritance' if DSL lacks it) with source=ImplementingClass, target=Interface."
+    - "A class fulfilling an interface uses the 'implements' relationship (source=ImplementingClass, target=Interface). An interface extending another interface instead uses its OWN `extends_interfaces` field (a list, since Java allows extending multiple interfaces) - never a relationship."
   examples:
     - "PaymentGateway (is_interface: true)"
 

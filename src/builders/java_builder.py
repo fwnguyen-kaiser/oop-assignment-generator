@@ -66,6 +66,7 @@ class JavaBuilder:
                     is_abstract=e.is_abstract,
                     is_interface=e.is_interface,
                     extends=e.inherits_from,
+                    extends_interfaces=e.extends_interfaces if e.extends_interfaces else [],
                     implements=e.implements if e.implements else [],
                     fields=fields,
                     methods=[]
@@ -131,7 +132,17 @@ class JavaBuilder:
             modifiers.append("class")
             
         decl = " ".join(modifiers) + f" {java_class.name}"
-        if java_class.extends: decl += f" extends {java_class.extends}"
+        if java_class.is_interface:
+            # An interface can extend multiple interfaces (JLS SS9.1.3).
+            if java_class.extends_interfaces:
+                decl += f" extends {', '.join(java_class.extends_interfaces)}"
+        else:
+            if java_class.extends: decl += f" extends {java_class.extends}"
+        # Deliberately NOT gated on is_interface: a non-empty `implements` on an
+        # interface is invalid Java, but upstream (repair_pipeline + compile_logical_plan's
+        # kind-aware routing) should never produce that combination. If it ever does
+        # anyway, render it and let javac reject it loudly - silently dropping the data
+        # here would hide the bug instead of surfacing it.
         if java_class.implements: decl += f" implements {', '.join(java_class.implements)}"
             
         lines.append(f"{decl} {{")

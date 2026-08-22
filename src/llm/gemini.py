@@ -28,13 +28,14 @@ class GeminiProvider:
         
         few_shot_example = """
 --- FEW-SHOT EXAMPLE ---
-If the domain is 'E-Commerce' and soft guidance asks for ~4 classes:
+If the domain is 'E-Commerce' and soft guidance asks for ~5 classes:
 {
-  "design_rationale": "Modeled a basic e-commerce flow with Order composing LineItem.",
+  "design_rationale": "Modeled a basic e-commerce flow with Order composing LineItem. DigitalProduct extends Product to show a concrete subclass.",
   "entities": [
     {"name": "Order", "kind": "core", "note": "Customer's purchase order"},
     {"name": "LineItem", "kind": "core", "note": "Individual item in the order"},
-    {"name": "Product", "kind": "core", "note": "Catalog item"},
+    {"name": "Product", "kind": "core", "note": "Catalog item", "is_abstract": true},
+    {"name": "DigitalProduct", "kind": "core", "note": "Downloadable catalog item", "extends": "Product"},
     {"name": "PaymentProcessor", "kind": "supporting", "note": "External service"}
   ],
   "relationships": [
@@ -42,6 +43,7 @@ If the domain is 'E-Commerce' and soft guidance asks for ~4 classes:
     {"from_entity": "LineItem", "to_entity": "Product", "type": "association"}
   ]
 }
+Note DigitalProduct declares its superclass via its OWN `extends` field, not a relationship.
 """
 
         prompt = [
@@ -61,6 +63,18 @@ If the domain is 'E-Commerce' and soft guidance asks for ~4 classes:
             "- HARD RULE (not soft): if you set `is_interface: true` on ANY entity, you MUST also include at "
             "least one relationship of type 'implements' targeting that entity in this SAME response. An "
             "interface with no implementer is useless to the student - never create one without its implementer.",
+            "\n--- HARD RULES: HOW TO DECLARE INHERITANCE (not soft) ---",
+            "Inheritance is a field on the entity itself, NOT a relationship - there is no 'inheritance' "
+            "relationship type. Which field you use depends on the entity's own kind:",
+            "- A normal class or an `is_abstract: true` class: set `extends` to the name of its ONE superclass "
+            "(or leave it null). A class can never have more than one superclass in Java - the field only "
+            "holds a single name, never a list.",
+            "- An `is_interface: true` entity: set `extends_interfaces` to a list of the interface(s) it "
+            "extends (can be zero, one, or several - Java allows an interface to extend multiple interfaces). "
+            "Leave `extends` null for interfaces.",
+            "- A class/abstract class can NEVER extend an interface, and an interface can NEVER extend a "
+            "class/abstract class. Use the 'implements' relationship (source=class, target=interface) for "
+            "a class fulfilling an interface contract instead.",
 
             few_shot_example,
             

@@ -16,6 +16,15 @@ def validate_sketch(sketch: SketchPlan) -> list[str]:
             errors.append(f"dangling from_entity: {r.from_entity}")
         if r.to_entity not in entity_names:
             errors.append(f"dangling to_entity: {r.to_entity}")
+    # Inheritance now lives on the entity itself (extends/extends_interfaces), not in
+    # `relationships` - see the Tầng 0 schema change - so it needs its own dangling-ref
+    # check here rather than being covered by the loop above.
+    for e in sketch.entities:
+        if e.extends and e.extends not in entity_names:
+            errors.append(f"dangling extends: {e.name} -> {e.extends}")
+        for target in e.extends_interfaces:
+            if target not in entity_names:
+                errors.append(f"dangling extends_interfaces: {e.name} -> {target}")
     return errors
 
 def compile_logical_plan(sketch: SketchPlan, decisions: list[str]) -> LogicalPlan:
@@ -24,33 +33,34 @@ def compile_logical_plan(sketch: SketchPlan, decisions: list[str]) -> LogicalPla
     
     entities_map = {}
     
-    # 1. Initialize SemanticEntities
+    # 1. Initialize SemanticEntities. Inheritance is read straight off the entity -
+    # repair_pipeline already resolved it into class_parent_map/iface_parent_map and
+    # wrote the final, kind-consistent result back onto e.extends/e.extends_interfaces
+    # (see StructuralRepairPipeline.repair's last step) - so there's no relationship-
+    # type routing decision left to make here for inheritance at all.
     for e in sketch.entities:
         entities_map[e.name] = SemanticEntity(
             name=e.name,
             description=e.note,
             is_abstract=e.is_abstract,
             is_interface=e.is_interface,
-            inherits_from=None,
+            inherits_from=(e.extends if not e.is_interface else None),
+            extends_interfaces=(list(e.extends_interfaces) if e.is_interface and e.extends_interfaces else None),
             implements=[],
             composes_with=[],
             aggregates_with=[],
             associated_with=[]
         )
 
-    # 2. Map relationships
+    # 2. Map structural relationships (composition/aggregation/association/implements -
+    # "inheritance" is no longer a possible SketchRelationship.type value at all)
     for r in sketch.relationships:
         source = entities_map.get(r.from_entity)
         target = entities_map.get(r.to_entity)
         if not source or not target:
             continue
 
-        if r.type == "inheritance":
-            if target.is_interface:
-                source.implements.append(target.name)
-            else:
-                source.inherits_from = target.name
-        elif r.type == "implements":
+        if r.type == "implements":
             source.implements.append(target.name)
         elif r.type == "composition":
             source.composes_with.append(target.name)
@@ -62,6 +72,7 @@ def compile_logical_plan(sketch: SketchPlan, decisions: list[str]) -> LogicalPla
     # Remove empty lists to keep JSON clean
     for se in entities_map.values():
         if not se.implements: se.implements = None
+        if not se.extends_interfaces: se.extends_interfaces = None
         if not se.composes_with: se.composes_with = None
         if not se.aggregates_with: se.aggregates_with = None
         if not se.associated_with: se.associated_with = None
@@ -214,10 +225,33 @@ def run_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", preset_path
 
     for log in repair_engine.action_log:
         print(f"[REPAIR] {log['step']} on {log['node']}: {log['detail']} -> {log['action']}")
-        
+
+    lossiness = repair_engine.lossiness_summary()
+    print(f"[REPAIR] lossiness summary: {lossiness}")
+    # Appended (not overwritten) across runs - this is the raw data the "ĐO" step needs
+    # to decide whether Phase 2.fb is worth building at all: average invent_or_destroy/
+    # drop_edge actions per generate, across N domains x presets, measured AFTER Tầng 0
+    # (schema) + Tầng 1 (prompt) are in place. A single run tells you nothing on its own.
+    lossiness_log_path = "output/phase2_lossiness_log.jsonl"
+    with open(lossiness_log_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"domain": sanitized_domain.name, **lossiness}) + "\n")
+
     with open("output/phase2_repaired_sketch.json", "w", encoding="utf-8") as f:
         f.write(repaired_sketch.model_dump_json(indent=2))
-        
+
+    print("\n--- Running Phase 2.5: Skeleton Compile Gate ---")
+    from src.validator.skeleton_gate import SkeletonGate
+    gate_ok, gate_stderr = SkeletonGate().check(repaired_sketch)
+    if gate_ok:
+        print("[PHASE 2.5] Skeleton compiles cleanly - structural repair is javac-legal.")
+    else:
+        # No retry loop yet (that's Phase 2.fb, deferred until the action_log-lossiness
+        # metric shows it's actually needed - see docs). For now this just makes a
+        # structural-legality failure visible immediately after Phase 2, instead of
+        # only surfacing once Phase 6 fails after Phase 5a-i/ii already spent LLM calls
+        # writing fields/methods for a graph that could never have compiled.
+        print(f"[PHASE 2.5] WARNING: skeleton failed to compile - structural repair produced an illegal graph:\n{gate_stderr}")
+
     print("\n--- Running Phase 3: Logical Plan Compilation ---")
     try:
         decisions = llm.generate_design_decisions(repaired_sketch, repair_engine.action_log)

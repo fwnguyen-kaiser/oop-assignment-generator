@@ -113,6 +113,90 @@ def test_composition_still_routed_to_composes_with():
     assert order.aggregates_with is None
 
 
+def test_interface_extending_interface_routes_to_extends_interfaces_not_implements():
+    """Regression test for a real javac failure: an inheritance edge between two
+    interfaces used to be routed into `implements` (compile_logical_plan only checked
+    the TARGET's is_interface, not the SOURCE's), and JavaBuilder never renders
+    `extends` for interfaces at all - so `interface Printable extends Readable`
+    rendered as `public interface Printable implements Readable`, which javac rejects
+    with "'{' expected". Found by probing all 4 (source-kind, target-kind) combinations
+    for the `extends`/`implements` edge live against real javac. Since the Tầng 0
+    schema change, interface-extends-interface is declared via the entity's own
+    `extends_interfaces` field rather than a relationship at all."""
+    sketch = SketchPlan(
+        design_rationale="test",
+        entities=[
+            SketchEntity(name="Readable", kind="supporting", note="", is_interface=True),
+            SketchEntity(name="Printable", kind="supporting", note="", is_interface=True, extends_interfaces=["Readable"]),
+        ],
+        relationships=[],
+    )
+    plan = compile_logical_plan(sketch, ["test"])
+    printable = next(e for e in plan.support_entities if e.name == "Printable")
+    assert printable.extends_interfaces == ["Readable"]
+    assert printable.implements is None
+    assert printable.inherits_from is None
+
+    ast = JavaBuilder().build_ast(plan)
+    rendered = JavaBuilder().render_class(next(c for c in ast if c.name == "Printable"), {c.name: c for c in ast})
+    assert "public interface Printable extends Readable {" in rendered
+    assert "implements" not in rendered
+
+
+def test_interface_multiple_inheritance_survives_repair_pipeline_downgrade():
+    """End-to-end regression: an interface extending SEVERAL other interfaces
+    (`interface Printable extends Readable, Writable`) must survive repair and still
+    compile. Before the Tầng 0 schema change, this relied on repair_pipeline's rule
+    2.1 downgrading the second 'inheritance' edge to 'implements' and
+    compile_logical_plan routing it back to extends_interfaces by kind. Now inheritance
+    lives on SketchEntity.extends_interfaces directly (a list, since JLS allows an
+    interface multiple parents) - repair_pipeline's iface_parent_map keeps ALL of them,
+    no downgrade involved at all."""
+    from src.schemas.blueprint import BlueprintPreset, StructureConfig, ClassCountConfig, OopConfig, InheritanceConfig, FeatureToggle
+    from src.schemas.domain import DomainConfig
+    from src.validator.repair_pipeline import StructuralRepairPipeline
+    import subprocess, tempfile, os
+
+    preset = BlueprintPreset(
+        difficulty="d",
+        structure=StructureConfig(classes=ClassCountConfig(min=1, max=10)),
+        oop=OopConfig(
+            inheritance=InheritanceConfig(enabled=True, max_depth=3),
+            interface=FeatureToggle(enabled=True),
+        ),
+    )
+    domain = DomainConfig(name="d", description="d", keywords=[], style="x")
+
+    sketch = SketchPlan(
+        design_rationale="test",
+        entities=[
+            SketchEntity(name="Readable", kind="supporting", note="", is_interface=True),
+            SketchEntity(name="Writable", kind="supporting", note="", is_interface=True),
+            SketchEntity(name="Printable", kind="supporting", note="", is_interface=True, extends_interfaces=["Readable", "Writable"]),
+            SketchEntity(name="Doc", kind="core", note=""),
+        ],
+        relationships=[
+            SketchRelationship(from_entity="Doc", to_entity="Printable", type="implements"),
+        ],
+    )
+    repaired = StructuralRepairPipeline(preset, domain).repair(sketch)
+    plan = compile_logical_plan(repaired, ["test"])
+    printable = next(e for e in plan.support_entities if e.name == "Printable")
+    assert set(printable.extends_interfaces) == {"Readable", "Writable"}
+
+    ast = JavaBuilder().build_ast(plan)
+    m = {c.name: c for c in ast}
+    with tempfile.TemporaryDirectory() as d:
+        paths = []
+        for c in ast:
+            p = os.path.join(d, f"{c.name}.java")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(JavaBuilder().render_class(c, m))
+            paths.append(p)
+        result = subprocess.run(["javac", "-d", d] + paths, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+
+
 def test_aggregation_renders_hollow_diamond_in_diagram():
     plan = LogicalPlan(
         design_decisions=["test"],
