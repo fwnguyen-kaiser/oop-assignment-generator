@@ -29,6 +29,9 @@ relationship_hints:
   composition:
     - Animal -> BodyPart
 
+  aggregation:
+    - Species -> Animal    # a species classifies many individual animals, doesn't own their lifecycle
+
   implements:                        # nhóm mới, khớp preset interface.enabled
     - Dog -> Trainable
 

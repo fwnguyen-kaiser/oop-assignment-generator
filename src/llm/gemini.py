@@ -46,19 +46,43 @@ If the domain is 'E-Commerce' and soft guidance asks for ~5 classes:
 Note DigitalProduct declares its superclass via its OWN `extends` field, not a relationship.
 """
 
+        hint_count = 0
+        if sanitized_domain.entity_hints:
+            hint_count = len(sanitized_domain.entity_hints.core) + len(sanitized_domain.entity_hints.optional or [])
+        max_classes = preset.structure.classes.max
+        min_classes = preset.structure.classes.min
+
         prompt = [
             "\n--- DOMAIN CONTEXT ---",
             f"Topic: {sanitized_domain.name}",
             f"Description: {sanitized_domain.description}",
             f"Keywords: {', '.join(sanitized_domain.keywords)}",
             "WARNING: The 'entity_hints' and 'relationship_hints' provided below are merely VOCABULARY INSPIRATIONS.",
-            "CREATIVITY REQUIRED: You MUST NOT blindly copy all the hints. You are EXPECTED to invent NOVEL entities that are NOT explicitly listed in the hints, as long as they fit the Domain Description.",
+            "CREATIVITY WITHIN BUDGET: You MUST NOT blindly copy all the hints, and you MAY invent novel entities "
+            "that fit the Domain Description better than a hinted one - but every novel entity REPLACES a weaker "
+            "hinted candidate, it does not add to the total. Your final entity count is governed by the class-count "
+            "limit below, not by how many hints exist.",
             f"Hints: {sanitized_domain.entity_hints.model_dump_json(exclude_none=True) if sanitized_domain.entity_hints else 'None'}",
             f"Relationship Hints: {sanitized_domain.relationship_hints.model_dump_json(exclude_none=True) if sanitized_domain.relationship_hints else 'None'}",
-            
-            "\n--- SOFT STRUCTURAL GUIDANCE ---",
-            "This is just soft guidance. Do your best to generate roughly this many entities, but do NOT worry about being perfectly precise.",
-            f"- Aim for around {preset.structure.classes.min} to {preset.structure.classes.max} domain classes.",
+
+            "\n--- STRUCTURAL GUIDANCE ---",
+            f"- HARD LIMIT (not soft): your TOTAL entity count (core + supporting combined) MUST be between "
+            f"{min_classes} and {max_classes} inclusive. This is enforced whether you respect it or not - if you "
+            f"exceed {max_classes}, a later deterministic step WILL delete entities to bring the count down, "
+            f"picking by a generic score that has no idea which of your entities matters most to the domain "
+            f"story, and deleting one can also silently break relationships you designed around it. Choosing "
+            f"the right {max_classes} (or fewer, down to {min_classes}) yourself, right now, always produces a "
+            f"better result than leaving that choice to an automated fallback.",
+            f"- The hints above list {hint_count} candidate entity names. "
+            + (
+                f"That is MORE than your {max_classes}-entity limit - you do NOT need or want to use all of "
+                f"them. Pick the {max_classes} that best represent the domain's core concepts (core entities "
+                f"first), and leave the rest out entirely rather than including everything and hoping repair "
+                f"picks the right one to cut."
+                if hint_count > max_classes else
+                f"That fits within your {max_classes}-entity limit, so you have room to use most or all of them "
+                f"plus your own novel entities, as long as the total stays within range."
+            ),
             f"- Aim for a maximum inheritance depth of roughly {preset.oop.inheritance.max_depth if preset.oop and preset.oop.inheritance else 'N/A'}.",
             "- HARD RULE (not soft): if you set `is_interface: true` on ANY entity, you MUST also include at "
             "least one relationship of type 'implements' targeting that entity in this SAME response. An "
@@ -448,6 +472,69 @@ Note DigitalProduct declares its superclass via its OWN `extends` field, not a r
             "CRITICAL: echo back the exact `param_types` list shown above for each method you fill, unchanged. "
             "(class_name, method_name) alone does NOT uniquely identify a Java method - two methods can share a "
             "name with different parameters (overloading) - param_types is what disambiguates which one you filled."
+        )
+
+        from src.schemas.java_ast import ContractFillResponse
+
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents="\n".join(lines),
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                response_mime_type="application/json",
+                response_schema=ContractFillResponse,
+                temperature=0.4
+            ),
+        )
+
+        if response.parsed is None:
+            raise ValueError(f"Structured output parse failed. Raw text: {response.text}")
+
+        return response.parsed.fills
+
+    @tenacity.retry(wait=tenacity.wait_exponential(multiplier=2, min=5, max=65), stop=tenacity.stop_after_attempt(5))
+    def fix_content_quality_smells(self, smells: dict, ast_classes: list, domain_name: str, domain_desc: str) -> list:
+        """A capped, OPTIONAL retry for content_quality_detector.py's flagged methods -
+        NOT a compile-error fix (the code already compiles) and NOT a Taxonomy A repair
+        (nothing here is decidably wrong, only smelly - see that module's docstring for
+        why it never auto-corrects on its own). Reuses ContractFillResponse's shape
+        (class/method/param_types/body) since the merge-back need is identical:
+        disambiguate by full signature, not name alone."""
+        system_instruction = (
+            "You are an expert Java Developer improving generated code quality.\n"
+            "You are given methods whose CURRENT implementation is suspiciously lazy - a bare constant return "
+            "that ignores the class's own fields, or a hardcoded date literal instead of using the class's real "
+            "date field or the current date. Rewrite each one with a short, real implementation that actually "
+            "uses the class's relevant field(s). If you genuinely cannot improve on the current body given the "
+            "domain, you may return it unchanged - do not invent unrelated behavior."
+        )
+
+        classes_json = "\n".join(
+            f"--- Class: {c.name} ---\n" + c.model_dump_json(indent=2, exclude={"methods"}) for c in ast_classes
+        )
+
+        lines = [
+            f"--- DOMAIN CONTEXT ---\nTopic: {domain_name}\nDescription: {domain_desc}",
+            "\n--- FULL CURRENT CLASS STRUCTURE (fields only) ---",
+            classes_json,
+            "\n--- METHODS FLAGGED AS SUSPICIOUSLY LAZY ---",
+        ]
+        for class_name, class_smells in smells.items():
+            for smell in class_smells:
+                m = smell.method
+                ret = m.return_type.name if m.return_type else "void"
+                param_types = [p.type_ref.name for p in m.parameters]
+                params = ", ".join(f"{p.type_ref.name} {p.name}" for p in m.parameters)
+                lines.append(
+                    f"- Class '{class_name}', method {ret} {m.name}({params}) [param_types: {param_types}] - "
+                    f"current body: `{m.body}` - flagged because: {smell.reason}"
+                )
+
+        lines.append("\n--- TASK ---")
+        lines.append(
+            "For each flagged method, return a short, real Java statement body. "
+            "CRITICAL: echo back the exact `param_types` shown above for each method, unchanged - "
+            "(class_name, method_name) alone does NOT uniquely identify a Java method (overloading)."
         )
 
         from src.schemas.java_ast import ContractFillResponse

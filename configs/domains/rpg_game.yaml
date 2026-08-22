@@ -24,8 +24,8 @@ relationship_hints:
   composition:
     - Character -> Weapon
     - Character -> Armor
-  association:
-    - Character -> Enemy
+  aggregation:
+    - Character -> Enemy    # a character can face several enemies over a session
   implements:
     - Warrior -> DamageDealer
     - Mage -> DamageDealer

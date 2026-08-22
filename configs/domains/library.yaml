@@ -23,10 +23,11 @@ relationship_hints:
     - Book -> FictionBook
   composition:
     - Library -> Book
-    - Library -> Member
+  aggregation:
+    - Library -> Member      # members are people, not lifecycle-owned parts of the library
+    - Member -> Loan         # a member can have several loans at once/over time
   association:
-    - Member -> Loan
-    - Loan -> Book
+    - Loan -> Book           # one loan record references exactly one book
   implements:
     - FictionBook -> Borrowable
 style: realistic

@@ -22,8 +22,9 @@ relationship_hints:
     - Product -> PhysicalProduct
     - Product -> DigitalProduct
   composition:
-    - Order -> Product
     - Customer -> ShoppingCart
+  aggregation:
+    - Order -> Product      # products live in the catalog independently of any one order
   association:
     - Order -> Payment
   implements:                        # nhóm mới, khớp preset interface.enabled

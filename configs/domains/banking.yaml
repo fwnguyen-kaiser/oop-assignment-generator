@@ -21,7 +21,8 @@ relationship_hints:
     - Account -> SavingsAccount
   composition:
     - Bank -> Account
-    - Bank -> Customer
+  aggregation:
+    - Bank -> Customer      # customers are people, not lifecycle-owned parts of the bank
   implements:                        # nhóm mới, khớp preset interface.enabled
     - SavingsAccount -> InterestBearing
     - CheckingAccount -> Auditable
