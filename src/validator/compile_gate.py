@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 from typing import Dict, List, Tuple
 from src.schemas.java_ast import JavaClass, JavaField, JavaTypeRef
-from src.validator.content_repair_pipeline import default_body_for_return_type
+from src.validator.content_repair_pipeline import ContentRepairPipeline, default_body_for_return_type, method_signature
 
 
 def is_javac_available() -> bool:
@@ -219,19 +219,38 @@ class CompileVerificationGate:
             return False
 
         if kind == "missing_override":  # safety net for 5.9, not compiler-exclusive
+            # Batch-fills EVERY currently-missing contract method on `child`, not just
+            # the one method javac happened to name in this particular error - javac
+            # only ever reports the FIRST missing method per class, one at a time, so
+            # a class missing N methods across multiple interfaces needs N full
+            # recompile rounds to surface them all one-by-one. Found live: 4 missing
+            # methods across 4 interfaces exhausted the default max_tier1=3 cap and
+            # shipped a class still missing its 4th method - the exact same "fix rate
+            # assumed to exceed defect count" shape as EDGE-1 in repair_pipeline.py.
+            # Reusing content_repair_pipeline's own required-contract computation
+            # means this always converges in one round regardless of N, the same way
+            # EDGE-1 was fixed by dropping excess classes as a batch instead of one
+            # node per iteration.
             child = class_map.get(error["child"])
-            parent = class_map.get(error["parent"])
-            if not child or not parent:
+            if not child:
                 return False
-            source_method = next((m for m in parent.methods if m.name == error["method"]), None)
-            if not source_method:
+            missing = ContentRepairPipeline().find_missing_contract_methods(list(class_map.values()))
+            missing_methods = missing.get(child.name, [])
+            if not missing_methods:
                 return False
-            new_method = source_method.model_copy(deep=True)
-            new_method.body = default_body_for_return_type(new_method.return_type)
-            new_method.is_abstract = False
-            child.methods.append(new_method)
-            self._log(f"missing_override: added stub {error['child']}.{error['method']}() to satisfy {error['parent']}")
-            return True
+            existing_sigs = {method_signature(m) for m in child.methods}
+            fixed_any = False
+            for m in missing_methods:
+                if method_signature(m) in existing_sigs:
+                    continue
+                new_method = m.model_copy(deep=True)
+                new_method.body = default_body_for_return_type(new_method.return_type)
+                new_method.is_abstract = False
+                child.methods.append(new_method)
+                existing_sigs.add(method_signature(new_method))
+                self._log(f"missing_override: added stub {child.name}.{new_method.name}() to satisfy contract")
+                fixed_any = True
+            return fixed_any
 
         if kind == "missing_symbol_class":  # the one genuinely compiler-exclusive case
             symbol = error["symbol"]
