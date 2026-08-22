@@ -5,7 +5,7 @@
 <p>
   <img alt="Python" src="https://img.shields.io/badge/python-3.14-3776AB?style=flat-square&logo=python&logoColor=white">
   <img alt="Java" src="https://img.shields.io/badge/target-Java%2021-ED8B00?style=flat-square&logo=openjdk&logoColor=white">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-111%20passing-2EA44F?style=flat-square&logo=pytest&logoColor=white">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-112%20passing-2EA44F?style=flat-square&logo=pytest&logoColor=white">
   <img alt="LLM" src="https://img.shields.io/badge/LLM-Gemini-8E75B2?style=flat-square&logo=googlegemini&logoColor=white">
   <img alt="Architecture" src="https://img.shields.io/badge/architecture-2--pass%20%7C%207--phase-4C6EF5?style=flat-square">
   <img alt="Verification" src="https://img.shields.io/badge/verification-real%20javac-F59E0B?style=flat-square">
@@ -100,7 +100,7 @@ Phase 6 is the newest and most important safety net: instead of hand-writing an 
 
 Every claim below was verified this session, not assumed:
 
-- **111 automated tests pass** (`pytest tests/ -q`), covering all 7 phases, including reproductions of every real bug found (not just happy-path cases).
+- **112 automated tests pass** (`pytest tests/ -q`), covering all 7 phases, including reproductions of every real bug found (not just happy-path cases).
 - **Live end-to-end runs across 5 domains** (banking, e-commerce, library, RPG, animal kingdom) and 3 difficulty presets, each verified by compiling the generated output with a real JDK (`javac ... ` → exit code 0), not just "it ran without a Python exception."
 - A curated real run is committed at [`examples/sample-run-ecommerce/`](examples/sample-run-ecommerce/) — full solution, skeleton, diagrams, and assignment brief, reproducible with `python run_all.py configs/domains/e_commerce.yaml configs/presets/advanced.yaml` given a `GEMINI_API_KEY`.
 - Multiple real, previously-shipped compile-breaking bugs were found by actually running `javac` against generated output (not by inspection) — duplicate methods, unfulfilled interface contracts, invalid overrides, missing imports, private-field access across inheritance — each with a before/after `javac` exit code as evidence. Details and root causes: [`docs/pipeline-audit-v4-technical-report.md`](docs/pipeline-audit-v4-technical-report.md).
@@ -123,14 +123,15 @@ These were raised and confirmed explicitly during development, not discovered la
 
 ## 🟢 Found, Reproduced Live, Fixed — a Worked Example of the Audit Method
 
-Applying the same fix-pattern taxonomy above (validity-check-timing gaps, incomplete pattern vocabulary) to `content_repair_pipeline.py` and `compile_gate.py` surfaced 3 more real bugs. Documented here with the fix rather than silently folded in, because the chain shows why "each rule is individually correct" doesn't imply "the system is correct" — and why the fix for #1 alone would have been wrong without #2:
+Applying the same fix-pattern taxonomy above (validity-check-timing gaps, incomplete pattern vocabulary) to `content_repair_pipeline.py` and `compile_gate.py` surfaced 5 more real bugs. Documented here with the fix rather than silently folded in, because the chain shows why "each rule is individually correct" doesn't imply "the system is correct" — and why the fix for #1 alone would have been wrong without #2:
 
 1. **`content_repair_pipeline.py` rule 4.1 could delete the method that fulfills an interface contract.** It dropped any method colliding with an auto-generated field accessor by (name, arity) alone, never checking whether that method was the one satisfying an abstract/interface requirement. Live-reproduced: an interface requiring `getValue(): boolean`, implemented by a class whose own field happens to auto-generate a same-named accessor, had its explicit implementation silently deleted on repair's second pass. **Fix**: exempt any signature the class is actually required to provide (a new shared helper, also used by the contract-detection function itself, so both agree on one definition of "required").
 2. **Fixing #1 alone would only have moved the bug.** `JavaBuilder` unconditionally generates a getter/setter for every private field, with no check for whether the class already declares an explicit method with that exact signature — so keeping the now-required method meant it rendered *alongside* its own field's auto-generated twin, a duplicate-method javac error, live-verified even when the two signatures matched exactly. **Fix**: accessor generation now defers to any existing explicit method with the same (name, arity).
 3. **`compile_gate.py`'s Tier 1 `invalid_override` pattern only matched javac's `"cannot override"` message** (class-extends-class), never `"cannot implement"` (class-implements-interface) — a different message for the same error category. A return-type mismatch against an interface contract fell through Tier 1 unresolved and could cascade into 3 rounds of a `missing_override` fix piling up colliding stubs, shipping a file with duplicate methods that doesn't compile. **Fix**: the regex now matches both verbs — verified end-to-end live: Tier 1 now resolves the same scenario in one round.
 4. **`JavaBuilder` silently dropped a has-a field on an interface** instead of rendering it for `javac` to reject — inconsistent with how `implements` on an interface source is already handled. Not reachable through the current `repair_pipeline.py` output path, but a real defense-in-depth gap. **Fix**: field rendering is no longer gated on `is_interface`, matching `implements`'s treatment.
+5. **`compile_gate.py`'s `missing_override` fix only added one stub per Tier-1 round**, because javac only ever reports the *first* missing method per class at a time — a class missing methods across 4 interfaces exhausted the default 3-round cap and shipped a class still missing its 4th method, live-reproduced. Same "fix rate assumed to exceed defect count" shape as an earlier `repair_pipeline.py` bug (batch-dropping excess classes). **Fix**: batch-fills the *entire* remaining contract gap in one round (reusing `content_repair_pipeline.py`'s own required-contract computation) instead of raising the round cap — verified to converge in one round regardless of how many methods are missing.
 
-All 4 fixes independently verified live (real javac, before and after) and locked in with 7 new regression tests.
+All 5 fixes independently verified live (real javac, before and after) and locked in with 8 new regression tests. The full Tier 1 pattern set (5 categories) has now been audited this way — each category's real trigger shapes (as reachable through this specific pipeline, not the full Java error space) enumerated and checked against real javac, not just read for plausibility.
 
 ---
 
@@ -145,7 +146,7 @@ python run_all.py configs/domains/<domain>.yaml configs/presets/<preset>.yaml
 Outputs land in `output/` (gitignored, regenerated every run — see `examples/` for a fixed reference run).
 
 ```bash
-pytest tests/ -q   # 111 tests
+pytest tests/ -q   # 112 tests
 ```
 
 ## 📁 Repo Layout
@@ -161,7 +162,7 @@ src/detail_pipeline.py             Phase 5a-7 orchestration
 src/builders/                      Phase 4/7 - AST, Mermaid diagram, and assignment.md rendering
 src/llm/gemini.py                  All LLM-facing prompts and structured-output contracts
 configs/domains/, configs/presets/ Domain vocabulary and difficulty blueprints
-tests/                             111 tests, including reproductions of every real bug found
+tests/                             112 tests, including reproductions of every real bug found
 docs/pipeline-audit-v4-technical-report.md   Full rule-by-rule technical reference
 examples/sample-run-ecommerce/     A real, javac-verified run, committed as a static artifact
 ```
