@@ -5,7 +5,7 @@
 <p>
   <img alt="Python" src="https://img.shields.io/badge/python-3.14-3776AB?style=flat-square&logo=python&logoColor=white">
   <img alt="Java" src="https://img.shields.io/badge/target-Java%2021-ED8B00?style=flat-square&logo=openjdk&logoColor=white">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-119%20passing-2EA44F?style=flat-square&logo=pytest&logoColor=white">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-130%20passing-2EA44F?style=flat-square&logo=pytest&logoColor=white">
   <img alt="LLM" src="https://img.shields.io/badge/LLM-Gemini-8E75B2?style=flat-square&logo=googlegemini&logoColor=white">
   <img alt="Architecture" src="https://img.shields.io/badge/architecture-2--pass%20%7C%207--phase-4C6EF5?style=flat-square">
   <img alt="Verification" src="https://img.shields.io/badge/verification-real%20javac-F59E0B?style=flat-square">
@@ -75,7 +75,8 @@ flowchart TD
     P4 --> P5ai --> P5aii --> P6
     P6 -->|compile errors| T1 --> P6
     P6 -->|still failing| T2 --> P6
-    P6 -->|clean or best-effort| P7
+    P6 -->|confirmed compiling| P7
+    P6 -->|confirmed still broken| Refuse(["raises - no final files written"])
 
     P7 --> End(["Assignment Package<br/>solution + skeleton + diagram + brief"])
 
@@ -87,7 +88,7 @@ flowchart TD
     class P1,P1b,P1c,P5ai,T2 llm;
     class P2,P3,P4,P5aii,P7 code;
     class P25,P6,T1 gate;
-    class Start,End endpoint;
+    class Start,End,Refuse endpoint;
 ```
 
 The governing principle, applied consistently across every phase: **the LLM owns meaning, deterministic code owns invariants it can verify with certainty, and the LLM is called back only when a gap requires genuinely new content — never to "please try to be more correct."**
@@ -100,7 +101,7 @@ Phase 6 is the newest and most important safety net: instead of hand-writing an 
 
 Every claim below was verified this session, not assumed:
 
-- **119 automated tests pass** (`pytest tests/ -q`), covering all 7 phases, including reproductions of every real bug found (not just happy-path cases).
+- **130 automated tests pass** (`pytest tests/ -q`), covering all 7 phases, including reproductions of every real bug found (not just happy-path cases).
 - **Live end-to-end runs across 5 domains** (banking, e-commerce, library, RPG, animal kingdom) and 3 difficulty presets, each verified by compiling the generated output with a real JDK (`javac ... ` → exit code 0), not just "it ran without a Python exception."
 - A curated real run is committed at [`examples/sample-run-ecommerce/`](examples/sample-run-ecommerce/) — full solution, skeleton, diagrams, and assignment brief, reproducible with `python run_all.py configs/domains/e_commerce.yaml configs/presets/advanced.yaml` given a `GEMINI_API_KEY`.
 - Multiple real, previously-shipped compile-breaking bugs were found by actually running `javac` against generated output (not by inspection) — duplicate methods, unfulfilled interface contracts, invalid overrides, missing imports, private-field access across inheritance — each with a before/after `javac` exit code as evidence. Details and root causes: [`docs/pipeline-audit-v4-technical-report.md`](docs/pipeline-audit-v4-technical-report.md).
@@ -112,7 +113,7 @@ Every claim below was verified this session, not assumed:
 
 These were raised and confirmed explicitly during development, not discovered later and glossed over:
 
-1. **The LLM fallback in Phase 6 (Tier 2) is not guaranteed to fix anything.** It is capped to a single attempt by design — a genuine last-resort safeguard, not a primary mechanism, because compiler-error-repair research shows syntax/name errors are fixed reliably by LLMs but logical errors are not (~45% success rate in published benchmarks). This was confirmed live: on one real run, the Tier 2 LLM call *failed* to fix a real compile error and introduced a new, unrelated one (a spurious method named identically to its own class). The system did not crash or silently ship broken output — it logged the residual compiler error and shipped best-effort — but the fix itself was not reliable. The **root cause** in that case was subsequently found and fixed permanently in Phase 7's rendering logic, not patched over in Phase 6, on the principle that Phase 6 is a safety net and permanent fixes belong upstream of it.
+1. **The LLM fallback in Phase 6 (Tier 2) is not guaranteed to fix anything.** It is capped to a single attempt by design — a genuine last-resort safeguard, not a primary mechanism, because compiler-error-repair research shows syntax/name errors are fixed reliably by LLMs but logical errors are not (~45% success rate in published benchmarks). This was confirmed live: on one real run, the Tier 2 LLM call *failed* to fix a real compile error and introduced a new, unrelated one (a spurious method named identically to its own class). The **root cause** in that case was subsequently found and fixed permanently in Phase 7's rendering logic, not patched over in Phase 6, on the principle that Phase 6 is a safety net and permanent fixes belong upstream of it. What the system does when both tiers are exhausted changed after peer review flagged it (see below): it used to log the residual error and ship the broken files anyway with no signal any caller checked; it now refuses to write the final deliverables at all and raises instead - see the "Addressed After Peer Review" section.
 2. **Semantic/domain-quality correctness is entirely out of scope for automated verification.** Whether a relationship is the *right* relationship (should `Customer` own `Account` more strongly than `Bank` does?), and whether generated method bodies are meaningfully correct rather than short stubs, is not something any rule in this system checks. This is a deliberate architectural boundary, proven unavoidable with the current approach (see the `Order`-emptied-out example above) — not an oversight.
 3. **Generic unresolved-type resolution was deliberately never built as a general rule.** Only a fixed whitelist of common Java types (`BigDecimal`, `UUID`, `Optional`, etc.) is resolved deterministically; anything outside it falls through to the capped, unreliable Phase 6 Tier 2.
 4. **Cost**: up to 7–8 LLM calls per generation now, versus 1 in the original single-call design (this is intentional — it's the direct cost of the correctness guarantees above — but has not been measured at scale).
@@ -133,6 +134,18 @@ Applying the same fix-pattern taxonomy above (validity-check-timing gaps, incomp
 5. **`compile_gate.py`'s `missing_override` fix only added one stub per Tier-1 round**, because javac only ever reports the *first* missing method per class at a time — a class missing methods across 4 interfaces exhausted the default 3-round cap and shipped a class still missing its 4th method, live-reproduced. Same "fix rate assumed to exceed defect count" shape as an earlier `repair_pipeline.py` bug (batch-dropping excess classes). **Fix**: batch-fills the *entire* remaining contract gap in one round (reusing `content_repair_pipeline.py`'s own required-contract computation) instead of raising the round cap — verified to converge in one round regardless of how many methods are missing.
 
 All 5 fixes independently verified live (real javac, before and after) and locked in with 8 new regression tests. The full Tier 1 pattern set (5 categories) has now been audited this way — each category's real trigger shapes (as reachable through this specific pipeline, not the full Java error space) enumerated and checked against real javac, not just read for plausibility.
+
+---
+
+## 🔍 Addressed After Peer Review
+
+An external review of an earlier version of this README raised 5 points. Each was checked against the actual code before acting on it — 2 were confirmed real and fixed, 1 was confirmed real but its specific example didn't apply (verified live, root cause was somewhere else), 2 were based on misreading which function reads from which data structure. Documented here rather than only fixed silently:
+
+1. **Confirmed, fixed: no rollback when Phase 6 (compile verification) fails.** `verify_and_repair()` returned only the AST, never a pass/fail signal — every downstream file (both diagrams, the final `.java` files, the student skeleton, `assignment.md`) got written unconditionally, even on a run where the gate had already logged "Compile verification FAILED... shipping best-effort output" to its own internal report and nowhere else. A generated assignment that doesn't compile is the worst possible outcome for a student. **Fix**: the gate now exposes `self.success` (`True`/`False`/`None` — `None` means never actually checked, e.g. no `javac` on `PATH`, deliberately distinct from a confirmed pass), and the pipeline now raises immediately on a confirmed `False` rather than proceeding — refusing to ship, not degrading silently.
+2. **Confirmed real, but the specific example given didn't apply: Mermaid syntax fragility.** The review's example was `List<String>`-style generics colliding with Mermaid's HTML-tag parsing — checked live, `mermaid_builder.py` already uses the safe `List~T~` tilde syntax everywhere, not raw angle brackets, so that specific failure mode doesn't exist here. Digging into *why* it couldn't happen surfaced the real, related gap: `JavaField`/`JavaMethod`/`JavaParameter.name` (and the actual Phase 5a-i LLM response type, `SignatureMethod.name`) had **zero** identifier-safety validation, unlike `SketchEntity.name` (PascalCase-validated since Phase 1). **Fix**: same Java-identifier check added to all of them - deliberately not rejecting reserved keywords, since renaming those is `content_repair_pipeline.py`'s `4.6` rule's job, not this validator's.
+3. **Fair point, no code was wrong: only 5 domains' worth of live evidence backs the `measure_lossiness.py`-driven prompt fix** (see "Measured Before Building" above) - extrapolating to an arbitrary future domain (e.g. many more `entity_hints` against a much smaller `max_classes`) is genuinely untested. Rather than trying to prove the fix generalizes to an unbounded ratio (which would need spending real API calls against domains that don't exist yet), domain YAML was reframed for what it actually is here - an author-controlled asset, not adversarial input. **Fix**: `DomainConfig` now validates `entity_hints` stays within the actual measured envelope (ratio ≤ 2.0, i.e. `entity_hints` count ≤ 8 against the smallest shipped preset's `max_classes`=4) and raises a clear, actionable error if a future domain would exceed it - all 5 shipped domains already fit.
+4. **Misread the code: claimed the detailed AST diagram and the sketch diagram read from two different "sources of truth"** (implying the pipeline isn't really using one consistent intermediate representation). Checked directly: `SemanticEntity` (the `LogicalPlan` IR) keeps `composes_with`/`aggregates_with` as two always-separate fields - nothing is lost there. `build_class_diagram(final_plan)` reads that IR directly (full fidelity); `build_detailed_diagram(ast_classes)` reads the *Java-compiled-down* representation, where the distinction is gone because **Java itself has no compile-time way to express it** (composition vs. aggregation is a UML-level distinction, not a Java-language one - the same way `javac` itself discards local variable names by default). One IR, one deliberate lossy compilation step, two renderers correctly reading from whichever stage existed when they run - not two sources of truth.
+5. **Not a new finding: "semantic-first" doesn't mean semantic-*verified*.** The review treated "the system can't check whether `Customer extends ShoppingCart` makes domain sense" as a contradiction of the architecture's name. "Semantic-first" describes *division of labor and order of operations* (the LLM designs freely before any mechanical check runs) - it was never a claim that semantic correctness gets verified, and the README already disclosed this boundary explicitly with a reproduced example (the `Order`-emptied-out case above) before this review happened.
 
 ---
 
@@ -157,7 +170,7 @@ python run_all.py configs/domains/<domain>.yaml configs/presets/<preset>.yaml
 Outputs land in `output/` (gitignored, regenerated every run — see `examples/` for a fixed reference run).
 
 ```bash
-pytest tests/ -q   # 119 tests
+pytest tests/ -q   # 130 tests
 ```
 
 ## 📁 Repo Layout
@@ -173,7 +186,7 @@ src/detail_pipeline.py             Phase 5a-7 orchestration
 src/builders/                      Phase 4/7 - AST, Mermaid diagram, and assignment.md rendering
 src/llm/gemini.py                  All LLM-facing prompts and structured-output contracts
 configs/domains/, configs/presets/ Domain vocabulary and difficulty blueprints
-tests/                             119 tests, including reproductions of every real bug found
+tests/                             130 tests, including reproductions of every real bug found
 docs/pipeline-audit-v4-technical-report.md   Full rule-by-rule technical reference
 examples/sample-run-ecommerce/     A real, javac-verified run, committed as a static artifact
 ```
