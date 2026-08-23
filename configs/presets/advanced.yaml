@@ -1,5 +1,7 @@
 difficulty: advanced
 
+# See configs/presets/beginner.yaml for the convention this file follows.
+
 structure:
   classes:
     min: 5
@@ -16,13 +18,9 @@ oop:
   composition:
     enabled: true
   aggregation:
-    # Was `false`, which made aggregation the ONLY feature in the whole progression to go
-    # true at intermediate and back to false at advanced - every other feature is
-    # monotonically non-decreasing (inheritance absent -> depth 2 -> depth 3, abstraction
-    # and interface absent -> false -> true). It also contradicted all five shipped
-    # domains, each of which lists an aggregation hint, so every advanced run was
-    # guaranteed to fire rule 2.7_aggregation_fallback and retype those edges to
-    # composition - reproducible lossiness inside the declared supported matrix, not bad
-    # luck. Enabling it makes the progression monotonic and takes that combo's retype
-    # count to zero.
+    # Was `false`, which made aggregation the only feature in the progression to go true at
+    # intermediate and back to false at advanced, and contradicted all five shipped domains -
+    # every one of them lists an aggregation hint, so every advanced run was guaranteed to fire
+    # 2.7_aggregation_fallback and retype those edges. Reproducible lossiness inside the
+    # declared supported matrix, not bad luck. See README's found-live item #6.
     enabled: true

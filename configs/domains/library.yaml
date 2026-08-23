@@ -1,6 +1,7 @@
 name: Library Management System
 description: |
   A system to manage books, library members, and borrowing transactions.
+# See configs/domains/animal.yaml for the convention this file follows.
 keywords:
   - Book
   - Member
@@ -16,15 +17,16 @@ entity_hints:
     - Library
     - ReferenceBook
     - FictionBook
-    - Borrowable      # interface candidate
+    - Borrowable      # interface candidate: shared behaviour (can be checked out)
 relationship_hints:
   inheritance:
     - Book -> ReferenceBook
     - Book -> FictionBook
   composition:
-    - Library -> Book
+    - Library -> Book        # a copy on the shelf belongs to this library and no other
   aggregation:
     - Library -> Member      # members are people, not lifecycle-owned parts of the library
+    - Library -> Librarian   # staff are employed by the library, not owned parts of it
     - Member -> Loan         # a member can have several loans at once/over time
   association:
     - Loan -> Book           # one loan record references exactly one book

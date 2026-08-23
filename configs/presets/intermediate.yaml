@@ -1,5 +1,7 @@
 difficulty: intermediate
 
+# See configs/presets/beginner.yaml for the convention this file follows.
+
 structure:
   classes:
     min: 4

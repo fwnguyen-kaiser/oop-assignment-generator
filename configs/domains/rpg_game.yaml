@@ -1,6 +1,7 @@
 name: RPG Game System
 description: |
   A role-playing game system with characters, weapons, magic spells, and enemies.
+# See configs/domains/animal.yaml for the convention this file follows.
 keywords:
   - Character
   - Weapon
@@ -16,16 +17,17 @@ entity_hints:
     - Armor
     - Warrior
     - Mage
-    - DamageDealer    # interface candidate
+    - DamageDealer    # interface candidate: shared behaviour (deals damage)
 relationship_hints:
   inheritance:
     - Character -> Warrior
     - Character -> Mage
   composition:
-    - Character -> Weapon
+    - Character -> Weapon    # an equipped weapon instance belongs to that character
     - Character -> Armor
   aggregation:
-    - Character -> Enemy    # a character can face several enemies over a session
+    - Character -> Enemy     # a character can face several enemies over a session
+    - Mage -> Spell          # a spell is shared game data a mage knows, not a part it owns
   implements:
     - Warrior -> DamageDealer
     - Mage -> DamageDealer

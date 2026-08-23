@@ -1,6 +1,7 @@
 name: Banking System
 description: |
   A banking application that manages customer accounts and financial transactions.
+# See configs/domains/animal.yaml for the convention this file follows.
 keywords:
   - Account
   - Customer
@@ -11,19 +12,20 @@ entity_hints:
     - Account
     - Customer
   optional:
-    - TransactionLog
-    - NotificationService
-    - Auditable        # interface candidate: hành vi chung (log lại mọi thay đổi)
-    - InterestBearing   # interface candidate: hành vi chung (tính lãi)
+    - CheckingAccount
+    - SavingsAccount
+    - Bank
+    - InterestBearing   # interface candidate: shared behaviour (accrues interest)
+    - Auditable         # interface candidate: shared behaviour (logs every change)
 relationship_hints:
   inheritance:
-    - Account -> BankAccount -> CheckingAccount -> PremiumCheckingAccount
+    - Account -> CheckingAccount
     - Account -> SavingsAccount
   composition:
-    - Bank -> Account
+    - Bank -> Account      # an account cannot exist without the bank that issued it
   aggregation:
-    - Bank -> Customer      # customers are people, not lifecycle-owned parts of the bank
-  implements:                        # nhóm mới, khớp preset interface.enabled
+    - Bank -> Customer     # customers are people, not lifecycle-owned parts of the bank
+  implements:
     - SavingsAccount -> InterestBearing
     - CheckingAccount -> Auditable
 style: realistic

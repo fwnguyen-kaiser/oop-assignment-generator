@@ -5,7 +5,7 @@
 <p>
   <img alt="Python" src="https://img.shields.io/badge/python-3.14-3776AB?style=flat-square&logo=python&logoColor=white">
   <img alt="Java" src="https://img.shields.io/badge/target-Java%2021-ED8B00?style=flat-square&logo=openjdk&logoColor=white">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-156%20passing-2EA44F?style=flat-square&logo=pytest&logoColor=white">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-213%20passing-2EA44F?style=flat-square&logo=pytest&logoColor=white">
   <img alt="LLM" src="https://img.shields.io/badge/LLM-Gemini-8E75B2?style=flat-square&logo=googlegemini&logoColor=white">
   <img alt="Architecture" src="https://img.shields.io/badge/architecture-2--pass%20%7C%207--phase-4C6EF5?style=flat-square">
   <img alt="Verification" src="https://img.shields.io/badge/verification-real%20javac-F59E0B?style=flat-square">
@@ -129,6 +129,7 @@ The distinction that matters: **L1 answers "why exactly these N rules and not N+
 | 12 | Mermaid / Markdown rendering | **L5** | ❌ Not proven, and the stated reason was **wrong**: an oracle *is* available here (`node v24.18.0` is on this machine, so `@mermaid-js/mermaid-cli` would parse-verify the `.mmd` the way `javac` verifies the `.java`). The real blocker is an unmade install decision, not an absent tool. Until it is wired this stays a read-through of every branch against the `classDiagram` grammar — see limitation #7 |
 | 13 | Behavioral correctness of method bodies | — | ❌ Not proven, deliberately. Human-owned by design — but the loop has no seam yet, see limitation #13 |
 | 14 | Cost / latency at scale | — | 🟡 **One data point, not a measurement.** A clean `e_commerce` × `advanced` run made **4** LLM calls (sketch, design decisions, signatures, bodies) — not the 7–8 quoted elsewhere, which is the *ceiling* reached only when Phase 1b, Phase 1c, contract-fill and Tier 2 all fire. Nothing is instrumented, so this is one observed run rather than a distribution |
+| 16 | Config-set internal coherence | **L2 + L1** | ✅ **Enforced, not documented.** `tests/test_config_convention.py` locks four conventions (all feature keys explicit; the difficulty progression monotonically non-decreasing; domain and entity hints referencing each other in both directions; aggregation only disabled where its retype is intended) and runs the *hint graph* of all 15 combinations through Phase 2 into real `javac`. Verified non-vacuous: re-introducing the original aggregation bug fails exactly 2 of the checks |
 | 15 | Declared input space — 5 domains × 3 presets = 15 combinations | **L2** | ✅ **Closed by declaration** (`src/supported.py`) and machine-checked against disk so it cannot drift. This is the move that makes any preset-boundary claim finite at all; inputs outside it still run, and `run_all.py` states plainly that no verified claim covers them |
 
 ### What completeness is even *available* here
@@ -151,7 +152,7 @@ So the honest response to an unbounded area is not more effort in the same direc
 
 ### The specific L1 and L3 results, in full
 
-- **156 automated tests pass** (`pytest tests/ -q`), covering all 7 phases, including a reproduction of every real bug found — not just happy paths.
+- **213 automated tests pass** (`pytest tests/ -q`), covering all 7 phases, including a reproduction of every real bug found — not just happy paths.
 - **Live end-to-end run after every change in this pass** (`e_commerce` × `advanced`, real Gemini + real JDK): exit code 0, Phase 6 compiled on the first attempt with no deterministic repair needed, `[SKELETON_GATE] Student skeleton compiles cleanly`, all 9 conformance requirements satisfied, and all three output directories re-verified independently with `javac` (exit 0 each). `conformance_log.jsonl` was appended; `novel_shapes_log.jsonl` was correctly *not* created, since no unrecognised `javac` shape occurred. The failure branches (conformance exit 1, skeleton-gate refusal, novel-shape logging) are covered by unit tests but have not yet fired in a live run.
 - **Live end-to-end runs across 5 domains** (banking, e-commerce, library, RPG, animal kingdom) and 3 presets, each verified by compiling the output with a real JDK (`javac` → exit 0), not "it ran without a Python exception."
 - A curated real run is committed at [`examples/sample-run-ecommerce/`](examples/sample-run-ecommerce/), reproducible with `python run_all.py configs/domains/e_commerce.yaml configs/presets/advanced.yaml` given a `GEMINI_API_KEY`. **Scope note**: its *deliverables* are current and verified — all three Java directories (`java/`, `java_skeleton/`, `java_detailed/`) compile with real `javac` (exit 0), re-checked as of this commit. Its *intermediate debug artifacts* are not: the `phase*.json` files predate the Tầng 0 schema change (inheritance lived in `relationships` then, it lives on `SketchEntity.extends` now) and two later renames (`phase_e_java_ast.json` → `phase4_ast_bootstrap.json`, `phase4_detailed_ast.json` → `phase6_detailed_ast.json`), so they will not re-parse against today's `SketchPlan`. Verified that this is staleness in the committed snapshot only, not a live round-trip defect: today's repair output dumps and re-parses cleanly. They refresh on the next real run.
@@ -197,6 +198,8 @@ Applying the same fix-pattern taxonomy above (validity-check-timing gaps, incomp
 
 6. **A config contradiction inside the declared supported matrix — found by reading a live run's repair log, not the code.** `configs/presets/advanced.yaml` shipped `aggregation: enabled: false`, while **all five** shipped domains list an aggregation hint. Every `advanced` run was therefore *guaranteed* to fire rule `2.7_aggregation_fallback` and retype those edges to composition — reproducible lossiness in the supported set, not bad luck (the live run above logged it twice, `retype: 2`). It also made aggregation the only feature in the whole difficulty progression to go `true` at intermediate and back to `false` at advanced; every other feature is monotonically non-decreasing (inheritance absent → depth 2 → depth 3; abstraction and interface absent → `false` → `true`), which is what identified it as an oversight rather than a pedagogical choice. **Fix**: enabled it. Verified by replaying the live run's untainted `phase1_sketch_plan.json` through repair with the corrected preset, zero API calls — repair now takes **no action at all** (all five lossiness counters zero, down from `retype: 2`), and `aggregation` moves from an optional check to a required one that is satisfied. Note this does not disturb the Phase 2.fb measurement below: `measure_lossiness.py` counts a run lossy on `invent_or_destroy`, and `2.7` is classified `retype`.
 
+   **The config set was then brought under one stated convention, and the convention was made enforceable** — a comment would not have caught the bug above, because nothing was checking that the config files agreed with each other. Four more contradictions surfaced once the whole set was read as one artifact rather than five separate files: `animal.yaml` and `banking.yaml` named entities in `relationship_hints` (`BodyPart`, `Bank`, `BankAccount`, `Mammal`) that appeared nowhere in `entity_hints`, so the prompt asked for relationships between candidates it never offered; `animal.yaml` encoded `Animal -> Mammal -> Dog` as a three-node chain in one string while every other domain used one pair per line; `library.yaml`'s `Librarian` and `rpg_game.yaml`'s `Spell` were declared candidates that no hint ever connected, so repair had to invent an edge (rule `2.8`) whenever the LLM picked them; `e_commerce.yaml` hinted `Product -> Taxable` on the *abstract base*, which makes digital products taxable and defeats the point of isolating tax as its own contract — a live run's LLM had already silently overridden it to `PhysicalProduct -> Taxable`. The `beginner` preset also declared no OOP keys at all while `intermediate` wrote `enabled: false` explicitly, two spellings of the same thing, and had no `inheritance` key — so the brief omitted any inheritance line while the generated code contained inheritance anyway. All fixed, and `tests/test_config_convention.py` now enforces the convention rather than describing it.
+
 All 6 fixes independently verified live (real javac, before and after) and locked in with 8 new regression tests. The full Tier 1 pattern set (5 categories) has now been audited this way — each category's real trigger shapes (as reachable through this specific pipeline, not the full Java error space) enumerated and checked against real javac, not just read for plausibility.
 
 ---
@@ -236,7 +239,7 @@ Outputs land in `output/` (gitignored, regenerated every run — see `examples/`
 `run_all.py` **exits non-zero** when the generated assignment does not satisfy the preset, and refuses to write the final package at all if either compile gate (solution or skeleton) confirms a failure. A clean exit means: it compiled, the skeleton compiled, and every preset requirement was met.
 
 ```bash
-pytest tests/ -q   # 156 tests
+pytest tests/ -q   # 213 tests
 ```
 
 ## 📁 Repo Layout
@@ -254,8 +257,11 @@ src/detail_pipeline.py             Phase 5a-7 orchestration, incl. the skeleton 
 src/supported.py                   The declared, finite input matrix (5 domains x 3 presets)
 src/builders/                      Phase 4/7 - AST, Mermaid diagram, and assignment.md rendering
 src/llm/gemini.py                  All LLM-facing prompts and structured-output contracts
-configs/domains/, configs/presets/ Domain vocabulary and difficulty blueprints
-tests/                             156 tests, including reproductions of every real bug found
+configs/domains/, configs/presets/ Domain vocabulary and difficulty blueprints - the convention
+                                    they follow is stated in configs/presets/beginner.yaml and
+                                    configs/domains/animal.yaml, and ENFORCED by
+                                    tests/test_config_convention.py (57 checks over the 15 combos)
+tests/                             213 tests, including reproductions of every real bug found
 docs/pipeline-audit-v4-technical-report.md   Full rule-by-rule technical reference
 examples/sample-run-ecommerce/     A real, javac-verified run, committed as a static artifact
                                     (deliverables current; phase*.json debug files predate

@@ -1,39 +1,40 @@
 name: Animal Kingdom
-
 description: |
   A biological hierarchy where animals share common traits
   and specialized species inherit behaviors from broader categories.
-
+# CONVENTION (enforced by tests/test_config_convention.py):
+#   - `keywords` is loose topic vocabulary for the prompt. `entity_hints` is the candidate
+#     class list. They are different jobs, so a keyword need not be an entity hint.
+#   - Every name appearing in `relationship_hints` MUST be declared in `entity_hints`. Three
+#     of the five domains already followed this; animal and banking did not, naming entities
+#     (BodyPart, Mammal, Bank, BankAccount...) that existed nowhere else.
+#   - One pair per line. `A -> B -> C` chains were unparseable as pairs and inconsistent with
+#     the other domains.
+#   - Comment the non-obvious edges with WHY, especially aggregation-vs-composition.
 keywords:
   - Animal
   - Mammal
   - Bird
   - Dog
-  - Cat
-
 entity_hints:
   core:
     - Animal
     - Species
-
   optional:
-    - Habitat
-    - Behavior
-    - Trainable        # interface candidate: hành vi chung (huấn luyện được)
-
+    - Mammal
+    - Bird
+    - Dog
+    - BodyPart
+    - Trainable        # interface candidate: shared behaviour (can be trained)
 relationship_hints:
   inheritance:
-    - Animal -> Mammal -> Dog
+    - Animal -> Mammal
+    - Mammal -> Dog      # deepest chain in any shipped domain: 2 extends edges
     - Animal -> Bird
-
   composition:
-    - Animal -> BodyPart
-
+    - Animal -> BodyPart   # a body part has no life of its own outside its animal
   aggregation:
     - Species -> Animal    # a species classifies many individual animals, doesn't own their lifecycle
-
-  implements:                        # nhóm mới, khớp preset interface.enabled
+  implements:
     - Dog -> Trainable
-
-style:
-  educational
+style: educational

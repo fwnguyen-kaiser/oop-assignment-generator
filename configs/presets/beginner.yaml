@@ -1,10 +1,41 @@
 difficulty: beginner
 
+# CONVENTION (see tests/test_config_convention.py, which enforces all of this):
+#   1. Every preset declares all five OOP feature keys EXPLICITLY, even when off. An absent
+#      key and `enabled: false` behave identically in code, so writing only one of them made
+#      the three presets impossible to read side by side as a progression.
+#   2. The progression beginner -> intermediate -> advanced is monotonically non-decreasing
+#      on every dimension. Aggregation used to break this (true at intermediate, false at
+#      advanced), which is how a real config bug was found - see README's found-live item #6.
+#   3. `enabled: false` is PERMISSIVE for inheritance/abstraction/interface/composition ("not
+#      required at this level") but PROHIBITIVE for aggregation, where rule
+#      2.7_aggregation_fallback actively retypes those edges to composition. That asymmetry is
+#      deliberate, not an accident: aggregation and composition render to the IDENTICAL Java
+#      (both are a private collection field - see java_builder.py), so collapsing one into the
+#      other costs a student nothing in code and only shows up in the diagram. An interface or
+#      abstract class cannot be collapsed the same way without destroying meaning, which is
+#      exactly the `Order`-emptied-out lesson this whole architecture is built on.
+
 structure:
   classes:
     min: 3
     max: 4
 
 oop:
+  inheritance:
+    # depth 1 = one `extends` edge, i.e. a base class and a subclass. Was previously absent
+    # entirely, which meant the assignment brief silently omitted any inheritance line while
+    # the generated code contained inheritance anyway (all five domains hint it, so the LLM
+    # proposes it regardless) - markdown_builder gates that line on this toggle.
+    enabled: true
+    max_depth: 1
+  abstraction:
+    enabled: false
+  interface:
+    enabled: false
   composition:
     enabled: true
+  aggregation:
+    # Prohibitive here, on purpose: the composition/aggregation distinction is not taught at
+    # this level, so has-a edges collapse to the single form the student has been shown.
+    enabled: false
