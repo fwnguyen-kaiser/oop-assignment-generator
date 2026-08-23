@@ -361,6 +361,17 @@ def run_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", preset_path
         json.dump(conformance, f, indent=2)
     print("Saved to output/conformance_report.json")
 
+    # Appended, not overwritten - same pattern as phase2_lossiness_log.jsonl above. A
+    # per-requirement baseline across the declared 15-combination matrix then accumulates as
+    # a by-product of ordinary use, instead of needing a dedicated (expensive) sweep.
+    with open("output/conformance_log.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps({
+            "domain": sanitized_domain.name,
+            "preset": preset.difficulty,
+            "all_satisfied": conformance["all_satisfied"],
+            "unsatisfied": conformance["unsatisfied"],
+        }) + "\n")
+
     print("\n--- Running Phase 3: Logical Plan Compilation ---")
     try:
         decisions = llm.generate_design_decisions(repaired_sketch, repair_engine.action_log)

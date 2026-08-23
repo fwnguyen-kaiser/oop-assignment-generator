@@ -159,6 +159,20 @@ def run_detail_pipeline(domain_path: str = "configs/domains/rpg_game.yaml", pres
     compile_gate = CompileVerificationGate(java_builder)
     ast_classes = compile_gate.verify_and_repair(ast_classes, domain, provider, max_tier1=3, max_tier2=1)
 
+    # The Tier-1 category set cannot be proven complete - javac's message space is not ours
+    # to bound - so the claim that replaces completeness ("no unrecognised javac shape has
+    # been observed") needs somewhere to accumulate. Appended across runs like the lossiness
+    # log, so a real corpus builds from ordinary use rather than from a sweep nobody has
+    # budget for.
+    if compile_gate.novel_error_shapes:
+        with open("output/novel_shapes_log.jsonl", "a", encoding="utf-8") as f:
+            for shape in compile_gate.novel_error_shapes:
+                f.write(json.dumps({"domain": domain.name, **shape}) + "\n")
+        print(
+            f"[COMPILE_GATE] {len(compile_gate.novel_error_shapes)} novel javac shape(s) logged "
+            "to output/novel_shapes_log.jsonl - the Tier-1 vocabulary may need a new category."
+        )
+
     # 3g. Save detailed AST (post-Phase-6, so its filename reflects that, not the stale
     # "phase4_detailed_ast.json" this was named before Phase 5a-i/5a-ii/6 existed).
     # Always saved, even on failure below - this is a debug artifact for postmortem, not
