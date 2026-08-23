@@ -16,4 +16,13 @@ oop:
   composition:
     enabled: true
   aggregation:
-    enabled: false
+    # Was `false`, which made aggregation the ONLY feature in the whole progression to go
+    # true at intermediate and back to false at advanced - every other feature is
+    # monotonically non-decreasing (inheritance absent -> depth 2 -> depth 3, abstraction
+    # and interface absent -> false -> true). It also contradicted all five shipped
+    # domains, each of which lists an aggregation hint, so every advanced run was
+    # guaranteed to fire rule 2.7_aggregation_fallback and retype those edges to
+    # composition - reproducible lossiness inside the declared supported matrix, not bad
+    # luck. Enabling it makes the progression monotonic and takes that combo's retype
+    # count to zero.
+    enabled: true
