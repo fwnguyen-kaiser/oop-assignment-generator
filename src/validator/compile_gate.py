@@ -373,6 +373,12 @@ class CompileVerificationGate:
                 if success:
                     if attempt > 0:
                         self._log(f"Tier 1: compiled successfully after {attempt} deterministic fix round(s).")
+                    else:
+                        # Silence used to be the only evidence of a first-try pass, which left a
+                        # clean Phase 6 indistinguishable in the log from Phase 6 never having run.
+                        # Same distinction this gate's own tri-state success flag exists to keep:
+                        # "we did not look" must not read the same as "we looked and it is fine".
+                        self._log("Compiled on the first attempt - no deterministic repair needed.")
                     self.success = True
                     return ast_classes
 
